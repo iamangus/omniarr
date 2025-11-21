@@ -1,0 +1,25 @@
+# Binaries
+/bin/
+/dist/
+omniarr
+*.exe
+*.test
+*.out
+
+# Configs (User specific)
+config/*.yaml
+example_configs/*
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Editor specific
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go specific
+vendor/
+go.work
