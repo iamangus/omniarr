@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,30 +21,36 @@ import (
 type Server struct {
 	SchemaConfig     *config.SchemaConfig
 	QualityConfig    *config.QualityConfig
+	CatalogConfig    *config.CatalogConfig
 	MetadataManager  *metadata.Manager
 	LifecycleManager *lifecycle.Manager
 	SearchManager    *search.SearchManager
 	ImportManager    *importing.ImportManager
 	Repo             *database.EntityRepository
+	ImageStoragePath string
 }
 
 func NewServer(
 	schemaCfg *config.SchemaConfig,
 	qualityCfg *config.QualityConfig,
+	catalogCfg *config.CatalogConfig,
 	metadataMgr *metadata.Manager,
 	lifecycleMgr *lifecycle.Manager,
 	searchMgr *search.SearchManager,
 	importMgr *importing.ImportManager,
 	repo *database.EntityRepository,
+	imageStoragePath string,
 ) *Server {
 	return &Server{
 		SchemaConfig:     schemaCfg,
 		QualityConfig:    qualityCfg,
+		CatalogConfig:    catalogCfg,
 		MetadataManager:  metadataMgr,
 		LifecycleManager: lifecycleMgr,
 		SearchManager:    searchMgr,
 		ImportManager:    importMgr,
 		Repo:             repo,
+		ImageStoragePath: imageStoragePath,
 	}
 }
 
@@ -52,6 +60,20 @@ func (s *Server) GetConfig(c *gin.Context) {
 		"root_entity":      s.SchemaConfig.RootEntity,
 		"quality_profiles": s.QualityConfig.Profiles,
 	})
+}
+
+// GetEntities returns all tracked entities
+func (s *Server) GetEntities(c *gin.Context) {
+	// Optional: Add filtering parameters here if needed
+	criteria := make(map[string]interface{})
+	
+	entities, err := s.Repo.Find(c.Request.Context(), criteria)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, entities)
 }
 
 // LookupCatalog searches for new content to add
@@ -64,6 +86,7 @@ func (s *Server) LookupCatalog(c *gin.Context) {
 
 	results, err := s.MetadataManager.Search(c.Request.Context(), query)
 	if err != nil {
+		fmt.Printf("Metadata search failed: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -71,22 +94,103 @@ func (s *Server) LookupCatalog(c *gin.Context) {
 	c.JSON(http.StatusOK, results)
 }
 
-// CreateEntity adds a new item
+// GetCatalogItem fetches details for a specific item from the metadata provider
+func (s *Server) GetCatalogItem(c *gin.Context) {
+	entityType := c.Query("type")
+	id := c.Query("id")
+
+	if entityType == "" || id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type and id parameters are required"})
+		return
+	}
+
+	result, err := s.MetadataManager.GetMetadata(c.Request.Context(), entityType, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// GetLists fetches curated lists from the metadata provider
+func (s *Server) GetLists(c *gin.Context) {
+	fmt.Println("GetLists called")
+	if s.CatalogConfig == nil {
+		fmt.Println("CatalogConfig is nil")
+		c.JSON(http.StatusOK, []interface{}{})
+		return
+	}
+	fmt.Printf("Configured lists: %v\n", s.CatalogConfig.Lists)
+
+	if len(s.CatalogConfig.Lists) == 0 {
+		c.JSON(http.StatusOK, []interface{}{})
+		return
+	}
+
+	results, err := s.MetadataManager.GetLists(c.Request.Context(), s.CatalogConfig.Lists)
+	if err != nil {
+		fmt.Printf("Error fetching lists: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	fmt.Printf("Fetched %d lists\n", len(results))
+	c.JSON(http.StatusOK, results)
+}
 func (s *Server) CreateEntity(c *gin.Context) {
-	var req domain.Entity
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var rawBody map[string]interface{}
+	if err := c.ShouldBindJSON(&rawBody); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Set defaults
-	if req.UUID == uuid.Nil {
-		req.UUID = uuid.New()
-	}
-	req.Status = domain.StatusWanted
-	req.Monitored = true
+	var entity domain.Entity
 
-	if err := s.Repo.Save(c.Request.Context(), &req); err != nil {
+	// 1. Entity Type
+	if et, ok := rawBody["entity_type"].(string); ok {
+		entity.EntityType = et
+	} else {
+		entity.EntityType = s.SchemaConfig.RootEntity
+	}
+
+	// 2. Metadata
+	// If "metadata" field exists, use it. Otherwise, use the entire body as metadata.
+	if meta, ok := rawBody["metadata"].(map[string]interface{}); ok {
+		metaBytes, _ := json.Marshal(meta)
+		entity.Metadata = metaBytes
+	} else {
+		metaBytes, _ := json.Marshal(rawBody)
+		entity.Metadata = metaBytes
+	}
+
+	// 3. UUID
+	if idStr, ok := rawBody["uuid"].(string); ok {
+		if id, err := uuid.Parse(idStr); err == nil {
+			entity.UUID = id
+		}
+	}
+	if entity.UUID == uuid.Nil {
+		entity.UUID = uuid.New()
+	}
+
+	// 4. Other defaults
+	entity.Status = domain.StatusWanted
+	entity.Monitored = true
+	now := time.Now()
+	entity.RequestedAt = &now
+
+	// 5. Child Overrides
+	childOverrides := make(map[string]bool)
+	if co, ok := rawBody["child_overrides"].(map[string]interface{}); ok {
+		for k, v := range co {
+			if b, ok := v.(bool); ok {
+				childOverrides[k] = b
+			}
+		}
+	}
+
+	if err := s.Repo.Save(c.Request.Context(), &entity); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -95,25 +199,73 @@ func (s *Server) CreateEntity(c *gin.Context) {
 	go func() {
 		ctx := context.Background()
 		// 1. Refresh Metadata
-		if err := s.LifecycleManager.RefreshEntity(ctx, req.UUID.String()); err != nil {
-			fmt.Printf("Failed to refresh metadata for %s: %v\n", req.UUID, err)
+		if err := s.LifecycleManager.RefreshEntity(ctx, entity.UUID.String(), childOverrides); err != nil {
+			fmt.Printf("Failed to refresh metadata for %s: %v\n", entity.UUID, err)
 			return
 		}
 
 		// Reload entity to get updated metadata
-		updatedEntity, err := s.Repo.Get(ctx, req.UUID.String())
+		updatedEntity, err := s.Repo.Get(ctx, entity.UUID.String())
 		if err != nil {
-			fmt.Printf("Failed to reload entity %s: %v\n", req.UUID, err)
+			fmt.Printf("Failed to reload entity %s: %v\n", entity.UUID, err)
 			return
 		}
 
 		// 2. Search
 		if err := s.SearchManager.PerformSearch(ctx, updatedEntity); err != nil {
-			fmt.Printf("Search failed for %s: %v\n", req.UUID, err)
+			fmt.Printf("Search failed for %s: %v\n", entity.UUID, err)
 		}
 	}()
 
-	c.JSON(http.StatusCreated, req)
+	c.JSON(http.StatusCreated, entity)
+}
+
+// UpdateEntity modifies an existing item
+func (s *Server) UpdateEntity(c *gin.Context) {
+	id := c.Param("uuid")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid parameter is required"})
+		return
+	}
+
+	// Check if entity exists
+	entity, err := s.Repo.Get(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "entity not found"})
+		return
+	}
+
+	// Define a struct for fields we allow updating
+	type UpdateEntityRequest struct {
+		Monitored          *bool `json:"monitored"`
+		MonitorNewChildren *bool `json:"monitor_new_children"`
+		QualityProfileID   *int  `json:"quality_profile_id"`
+	}
+
+	var req UpdateEntityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Apply updates
+	if req.Monitored != nil {
+		entity.Monitored = *req.Monitored
+	}
+	if req.MonitorNewChildren != nil {
+		entity.MonitorNewChildren = *req.MonitorNewChildren
+	}
+	if req.QualityProfileID != nil {
+		entity.QualityProfileID = req.QualityProfileID
+	}
+
+	// Save updated entity
+	if err := s.Repo.Save(c.Request.Context(), entity); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, entity)
 }
 
 // DeleteEntity removes an item

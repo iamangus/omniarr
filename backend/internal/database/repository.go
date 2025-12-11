@@ -9,7 +9,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	"omniarr/internal/config"
 	"omniarr/internal/domain"
-	"omniarr/internal/utils"
 )
 
 type EntityRepository struct {
@@ -158,15 +157,19 @@ func (r *EntityRepository) Save(ctx context.Context, e *domain.Entity) error {
 
 	// 1. Upsert Entity
 	query := `
-		INSERT INTO entities (uuid, parent_uuid, entity_type, status, monitored, last_refreshed_at, quality_profile_id, local_path, metadata)
-		VALUES (:uuid, :parent_uuid, :entity_type, :status, :monitored, :last_refreshed_at, :quality_profile_id, :local_path, :metadata)
+		INSERT INTO entities (uuid, parent_uuid, entity_type, status, monitored, last_refreshed_at, quality_profile_id, local_path, image_path, metadata, monitor_new_children, requested_by, requested_at)
+		VALUES (:uuid, :parent_uuid, :entity_type, :status, :monitored, :last_refreshed_at, :quality_profile_id, :local_path, :image_path, :metadata, :monitor_new_children, :requested_by, :requested_at)
 		ON CONFLICT (uuid) DO UPDATE SET
 		status = :status,
 		monitored = :monitored,
 		last_refreshed_at = :last_refreshed_at,
 		quality_profile_id = :quality_profile_id,
 		local_path = :local_path,
-		metadata = :metadata
+		image_path = :image_path,
+		metadata = :metadata,
+		monitor_new_children = :monitor_new_children,
+		requested_by = COALESCE(entities.requested_by, :requested_by),
+		requested_at = COALESCE(entities.requested_at, :requested_at)
 	`
 	_, err = tx.NamedExecContext(ctx, query, e)
 	if err != nil {
@@ -200,38 +203,29 @@ func (r *EntityRepository) Save(ctx context.Context, e *domain.Entity) error {
 
 func (r *EntityRepository) extractIdentifiers(e *domain.Entity) ([]domain.Identifier, error) {
 	var identifiers []domain.Identifier
-	
-	// Find the endpoint config for this entity type
-	var endpointConfig *config.EndpointMapping
-	for _, ep := range r.config.Endpoints {
-		if ep.EntityType == e.EntityType {
-			endpointConfig = &ep
-			break
-		}
-	}
-
-	if endpointConfig == nil {
-		return identifiers, nil // No config found, no identifiers to extract
-	}
 
 	if len(e.Metadata) == 0 {
 		return identifiers, nil
 	}
 
-	var metadataMap map[string]interface{}
-	if err := json.Unmarshal(e.Metadata, &metadataMap); err != nil {
+	// Try to unmarshal into a struct that has Identifiers map
+	type MetaWithIdentifiers struct {
+		Identifiers map[string]string `json:"identifiers"`
+	}
+
+	var meta MetaWithIdentifiers
+	if err := json.Unmarshal(e.Metadata, &meta); err != nil {
+		// If unmarshal fails, maybe it's legacy format or something else.
+		// But we expect standard format now.
 		return nil, err
 	}
 
-	for _, idMap := range endpointConfig.Identifiers {
-		val := utils.ExtractValue(metadataMap, idMap.Source)
-		if val != nil {
-			identifiers = append(identifiers, domain.Identifier{
-				EntityUUID: e.UUID,
-				Key:        idMap.Key,
-				Value:      fmt.Sprintf("%v", val),
-			})
-		}
+	for k, v := range meta.Identifiers {
+		identifiers = append(identifiers, domain.Identifier{
+			EntityUUID: e.UUID,
+			Key:        k,
+			Value:      v,
+		})
 	}
 
 	return identifiers, nil

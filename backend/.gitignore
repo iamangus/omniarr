@@ -9,6 +9,7 @@ omniarr
 # Configs (User specific)
 config/*.yaml
 example_configs/*
+images/*
 
 # OS specific
 .DS_Store

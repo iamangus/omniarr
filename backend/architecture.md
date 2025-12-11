@@ -62,7 +62,9 @@ CREATE TABLE entities (
     last_refreshed_at TIMESTAMP,                     -- For TTL Reconciliation loop
     quality_profile_id INT,
     local_path TEXT,                                 -- Location on Media PVC
-    metadata JSONB                                   -- Full blob from Metadata Provider (TMDB/TVDB)
+    metadata JSONB,                                  -- Full blob from Metadata Provider (TMDB/TVDB)
+    requested_by TEXT,                               -- User ID/Email from OIDC (Frontend)
+    created_at TIMESTAMP DEFAULT NOW()               -- When the request was made
 );
 ```
 
@@ -198,6 +200,7 @@ Allows the UI to search for *new* content to add.
 
 ### 6.3 Management
 *   `POST /entities` - Add a new item (Set status to Monitored).
+    *   *Header:* `X-Requested-By: <user_email>` (Optional, for tracking).
 *   `DELETE /entities/{uuid}` - Remove item.
 
 ### 6.4 Admin / Manual Actions

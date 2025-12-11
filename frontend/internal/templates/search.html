@@ -1,0 +1,51 @@
+{{ define "content" }}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="md:flex md:items-center md:justify-between">
+        <div class="flex-1 min-w-0">
+            <h2 class="text-2xl font-bold leading-7 text-white sm:text-3xl sm:truncate">
+                Search Results for "{{ .Query }}"
+            </h2>
+        </div>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="w-full">
+        <form action="/view/{{ .ActiveBackendID }}/search" method="GET" class="relative rounded-md shadow-sm">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <i class="fas fa-search text-gray-400"></i>
+            </div>
+            <input type="text" 
+                   name="query" 
+                   value="{{ .Query }}"
+                   class="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-gray-700 rounded-md bg-gray-800 text-white placeholder-gray-400 py-3" 
+                   placeholder="Search for {{ .ActiveBackendName }}...">
+        </form>
+    </div>
+
+    <!-- Search Results -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 mt-8">
+        {{ range .Results }}
+        <div class="group relative bg-gray-800 rounded-lg overflow-hidden shadow-lg cursor-pointer transform transition-transform duration-200 hover:scale-105 hover:z-10"
+             hx-get="/view/{{ $.ActiveBackendID }}/details?id={{ .ID }}&type={{ .Type }}"
+             hx-target="#modal-container"
+             hx-swap="innerHTML"
+             hx-trigger="click">
+            <div class="aspect-w-2 aspect-h-3 bg-gray-700">
+                {{ if .Image }}
+                <img src="{{ .Image }}" alt="{{ .Title }}" class="object-cover w-full h-full">
+                {{ else }}
+                <div class="flex items-center justify-center h-full text-gray-500">
+                    <i class="fas fa-image fa-3x"></i>
+                </div>
+                {{ end }}
+            </div>
+        </div>
+        {{ else }}
+        <div class="col-span-full text-center text-gray-400 py-12">
+            <p>No results found.</p>
+        </div>
+        {{ end }}
+    </div>
+</div>
+{{ end }}

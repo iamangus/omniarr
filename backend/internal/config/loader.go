@@ -12,6 +12,15 @@ import (
 func LoadConfig(configDir string) (*AppConfig, error) {
 	appConfig := &AppConfig{}
 
+	if err := loadYaml(filepath.Join(configDir, "server.yaml"), &appConfig.Server); err != nil {
+		// Optional for now, or default? Let's make it optional but log warning if needed.
+		// Actually, let's just return error if it fails, assuming it should exist now.
+		// Or better, if it doesn't exist, we can proceed with defaults (port 8080, no auth?).
+		// But the user asked to implement it. Let's assume it must exist or at least try to load it.
+		// Given I just created it, it should be fine.
+		return nil, fmt.Errorf("failed to load server.yaml: %w", err)
+	}
+
 	if err := loadYaml(filepath.Join(configDir, "schema.yaml"), &appConfig.Schema); err != nil {
 		return nil, fmt.Errorf("failed to load schema.yaml: %w", err)
 	}

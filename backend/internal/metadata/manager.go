@@ -2,29 +2,28 @@ package metadata
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
-
-	"omniarr/internal/config"
-	"omniarr/internal/utils"
 )
 
-// Manager implements the MetadataProvider interface
+// Manager implements the MetadataProvider interface by delegating to a specific provider
 type Manager struct {
-	config *config.CatalogConfig
-	client *http.Client
+	provider         MetadataProvider
+	imageStoragePath string
+	client           *http.Client
 }
 
 // NewManager creates a new instance of the Metadata Manager
-func NewManager(cfg *config.CatalogConfig) *Manager {
+func NewManager(provider MetadataProvider, imageStoragePath string) *Manager {
 	return &Manager{
-		config: cfg,
+		provider:         provider,
+		imageStoragePath: imageStoragePath,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -32,163 +31,97 @@ func NewManager(cfg *config.CatalogConfig) *Manager {
 }
 
 // GetMetadata fetches metadata for a specific entity type and ID
-func (m *Manager) GetMetadata(ctx context.Context, entityType string, id string) (map[string]interface{}, error) {
-	endpoint, err := m.getEndpoint(entityType)
+func (m *Manager) GetMetadata(ctx context.Context, entityType string, id string) (*Metadata, error) {
+	if m.provider == nil {
+		return nil, fmt.Errorf("no metadata provider configured")
+	}
+
+	meta, err := m.provider.GetMetadata(ctx, entityType, id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Construct URL
-	reqURL := m.config.BaseURL + strings.Replace(endpoint.URL, "{id}", id, 1)
-
-	// Make request
-	data, err := m.makeRequest(ctx, reqURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// Map attributes
-	result := make(map[string]interface{})
-	result["id"] = id
-	result["entity_type"] = entityType
-
-	for key, path := range endpoint.Attributes {
-		val := utils.ExtractValue(data, path)
-		if val != nil {
-			result[key] = val
+	// Handle Image Download
+	if meta.Image != "" && m.imageStoragePath != "" {
+		log.Printf("Found image URL for %s %s: %s", entityType, id, meta.Image)
+		localPath, err := m.downloadImage(ctx, meta.Image, entityType, id)
+		if err != nil {
+			log.Printf("Failed to download image for %s %s: %v", entityType, id, err)
+		} else {
+			log.Printf("Successfully downloaded image to %s", localPath)
+			// We store the local path in the Extra map so it can be used by the lifecycle manager
+			if meta.Extra == nil {
+				meta.Extra = make(map[string]interface{})
+			}
+			meta.Extra["_local_image_path"] = localPath
 		}
 	}
 
-	// Extract identifiers
-	identifiers := make(map[string]string)
-	for _, idMap := range endpoint.Identifiers {
-		val := utils.ExtractValue(data, idMap.Source)
-		if val != nil {
-			identifiers[idMap.Key] = fmt.Sprintf("%v", val)
-		}
-	}
-	if len(identifiers) > 0 {
-		result["identifiers"] = identifiers
-	}
-
-	// Extract children
-	for _, child := range endpoint.Children {
-		val := utils.ExtractValue(data, child.Source)
-		if val != nil {
-			// Use the path as the key (stripping $.)
-			// This assumes simple paths for now.
-			key := strings.TrimPrefix(child.Source, "$.")
-			result[key] = val
-		}
-	}
-
-	return result, nil
+	return meta, nil
 }
 
 // Search queries the provider for entities matching the query string
-func (m *Manager) Search(ctx context.Context, query string) ([]map[string]interface{}, error) {
-	// Assuming "search" is the entity type for search in config
-	// We might need a better way to identify the search endpoint if there are multiple
-	endpoint, err := m.getEndpoint("search")
-	if err != nil {
-		return nil, err
+func (m *Manager) Search(ctx context.Context, query string) ([]Metadata, error) {
+	if m.provider == nil {
+		return nil, fmt.Errorf("no metadata provider configured")
 	}
-
-	reqURL := m.config.BaseURL + endpoint.URL
-
-	// Add query params
-	u, err := url.Parse(reqURL)
-	if err != nil {
-		return nil, err
-	}
-	q := u.Query()
-	queryParam := endpoint.QueryParam
-	if queryParam == "" {
-		queryParam = "query"
-	}
-	q.Set(queryParam, query)
-	u.RawQuery = q.Encode()
-
-	data, err := m.makeRequest(ctx, u.String())
-	if err != nil {
-		return nil, err
-	}
-
-	// Search results are typically in a "results" array
-	// This might need to be configurable if other providers use different keys
-	resultsKey := endpoint.ResultsKey
-	if resultsKey == "" {
-		resultsKey = "results"
-	}
-
-	resultsRaw, ok := data[resultsKey].([]interface{})
-	if !ok {
-		// Try to see if the root is the array (if resultsKey is special, e.g. ".")
-		// For now, just fallback logic or error
-		return nil, fmt.Errorf("invalid search response format: '%s' key not found", resultsKey)
-	}
-
-	var results []map[string]interface{}
-	for _, itemRaw := range resultsRaw {
-		item, ok := itemRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		mappedItem := make(map[string]interface{})
-		for key, path := range endpoint.Attributes {
-			val := utils.ExtractValue(item, path)
-			if val != nil {
-				mappedItem[key] = val
-			}
-		}
-		results = append(results, mappedItem)
-	}
-
-	return results, nil
+	return m.provider.Search(ctx, query)
 }
 
-func (m *Manager) getEndpoint(entityType string) (*config.EndpointMapping, error) {
-	for _, ep := range m.config.Endpoints {
-		if ep.EntityType == entityType {
-			return &ep, nil
-		}
+// GetLists fetches curated lists of content
+func (m *Manager) GetLists(ctx context.Context, listIDs []string) ([]Metadata, error) {
+	if m.provider == nil {
+		return nil, fmt.Errorf("no metadata provider configured")
 	}
-	return nil, fmt.Errorf("no endpoint configuration found for entity type: %s", entityType)
+	return m.provider.GetLists(ctx, listIDs)
 }
 
-func (m *Manager) makeRequest(ctx context.Context, reqURL string) (map[string]interface{}, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+func (m *Manager) downloadImage(ctx context.Context, imageURL string, entityType string, id string) (string, error) {
+	log.Printf("Downloading image from %s", imageURL)
+	// Create directory if not exists
+	if err := os.MkdirAll(m.imageStoragePath, 0755); err != nil {
+		return "", fmt.Errorf("failed to create image directory: %w", err)
+	}
+
+	// Determine filename
+	// Sanitize ID just in case
+	safeID := strings.ReplaceAll(id, "/", "_")
+	ext := filepath.Ext(imageURL)
+	// Handle query params in extension (e.g. image.jpg?v=1)
+	if idx := strings.Index(ext, "?"); idx != -1 {
+		ext = ext[:idx]
+	}
+	if ext == "" {
+		ext = ".jpg" // Default to jpg
+	}
+	filename := fmt.Sprintf("%s_%s%s", entityType, safeID, ext)
+	localPath := filepath.Join(m.imageStoragePath, filename)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", imageURL, nil)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-
-	// Add API Key
-	// TODO: Make auth method configurable (header vs query param)
-	// Defaulting to query param 'api_key' for now as per current usage
-	q := req.URL.Query()
-	if m.config.APIKey != "" {
-		q.Add("api_key", m.config.APIKey)
-	}
-	req.URL.RawQuery = q.Encode()
-
-	log.Printf("Making request to: %s", req.URL.String())
 
 	resp, err := m.client.Do(req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("image download failed with status %d", resp.StatusCode)
 	}
 
-	var data map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
+	out, err := os.Create(localPath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return "", err
 	}
 
-	return data, nil
+	return filename, nil
 }

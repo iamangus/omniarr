@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,7 +12,6 @@ import (
 	"omniarr/internal/database"
 	"omniarr/internal/domain"
 	"omniarr/internal/metadata"
-	"omniarr/internal/utils"
 )
 
 // Manager handles metadata updates and hierarchy reconciliation
@@ -46,7 +44,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	log.Printf("Found %d stale entities to refresh", len(entities))
 
 	for _, entity := range entities {
-		if err := m.RefreshEntity(ctx, entity.UUID.String()); err != nil {
+		if err := m.RefreshEntity(ctx, entity.UUID.String(), nil); err != nil {
 			log.Printf("Failed to refresh entity %s: %v", entity.UUID, err)
 			// Continue with next entity
 		}
@@ -57,7 +55,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 }
 
 // RefreshEntity fetches new metadata for an entity and updates it
-func (m *Manager) RefreshEntity(ctx context.Context, entityUUID string) error {
+func (m *Manager) RefreshEntity(ctx context.Context, entityUUID string, childOverrides map[string]bool) error {
 	log.Printf("Refreshing entity with UUID: %s", entityUUID)
 
 	// 1. Get entity from repo
@@ -67,30 +65,38 @@ func (m *Manager) RefreshEntity(ctx context.Context, entityUUID string) error {
 	}
 
 	// 2. Extract external ID from metadata
-	var metaMap map[string]interface{}
+	// We try to unmarshal into Metadata struct first
+	var meta metadata.Metadata
 	if len(entity.Metadata) > 0 {
-		if err := json.Unmarshal(entity.Metadata, &metaMap); err != nil {
-			return fmt.Errorf("failed to unmarshal metadata: %w", err)
+		if err := json.Unmarshal(entity.Metadata, &meta); err != nil {
+			// Fallback: try map if struct fails (legacy data?)
+			var metaMap map[string]interface{}
+			if err := json.Unmarshal(entity.Metadata, &metaMap); err == nil {
+				if id, ok := metaMap["id"]; ok {
+					meta.ID = fmt.Sprintf("%v", id)
+				}
+			}
 		}
 	}
 
-	// Assuming "id" is the external ID key in metadata
-	externalID, ok := metaMap["id"]
-	if !ok {
-		// If no ID in metadata, we can't refresh.
-		// This might happen for newly added entities that haven't been fetched yet?
-		// But usually we add them with metadata.
+	if meta.ID == "" {
 		return fmt.Errorf("entity metadata missing external ID")
 	}
-	externalIDStr := fmt.Sprintf("%v", externalID)
 
 	// 3. Fetch metadata from provider
-	newMeta, err := m.provider.GetMetadata(ctx, entity.EntityType, externalIDStr)
+	newMeta, err := m.provider.GetMetadata(ctx, entity.EntityType, meta.ID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch metadata: %w", err)
 	}
 
 	// 4. Update entity with new metadata
+	// Extract local image path if present in Extra
+	if newMeta.Extra != nil {
+		if localPath, ok := newMeta.Extra["_local_image_path"].(string); ok {
+			entity.ImagePath = &localPath
+		}
+	}
+
 	metaJSON, err := json.Marshal(newMeta)
 	if err != nil {
 		return fmt.Errorf("failed to marshal new metadata: %w", err)
@@ -104,139 +110,188 @@ func (m *Manager) RefreshEntity(ctx context.Context, entityUUID string) error {
 		return fmt.Errorf("failed to save entity: %w", err)
 	}
 
-	// 5. Handle Hierarchy (Generic)
-	if err := m.refreshHierarchy(ctx, entity, newMeta, externalIDStr); err != nil {
+	// 5. Handle Hierarchy
+	if err := m.refreshHierarchy(ctx, entity, newMeta, childOverrides); err != nil {
 		return fmt.Errorf("failed to refresh hierarchy: %w", err)
+	}
+
+	// 6. Handle Variants
+	if err := m.refreshVariants(ctx, entity, newMeta); err != nil {
+		return fmt.Errorf("failed to refresh variants: %w", err)
 	}
 
 	return nil
 }
 
-func (m *Manager) refreshHierarchy(ctx context.Context, parent *domain.Entity, parentMeta map[string]interface{}, parentExternalID string) error {
-	log.Printf("Refreshing hierarchy for parent %s (Type: %s)", parent.UUID, parent.EntityType)
-	// Find endpoint config for this entity type
-	var endpoint *config.EndpointMapping
-	for _, ep := range m.config.Catalog.Endpoints {
-		if ep.EntityType == parent.EntityType {
-			endpoint = &ep
+func (m *Manager) refreshHierarchy(ctx context.Context, parent *domain.Entity, parentMeta *metadata.Metadata, childOverrides map[string]bool) error {
+	if len(parentMeta.Children) == 0 {
+		return nil
+	}
+
+	log.Printf("Refreshing hierarchy for parent %s (Type: %s). Found %d children.", parent.UUID, parent.EntityType, len(parentMeta.Children))
+
+	for _, childMeta := range parentMeta.Children {
+		// Determine Child External ID
+		childExternalID := childMeta.ID
+		if childExternalID == "" {
+			log.Printf("Child metadata missing ID, skipping")
+			continue
+		}
+
+		// Determine Child Entity Type
+		childType := childMeta.Type
+		if childType == "" {
+			// Fallback logic? Or assume same as parent? No, usually different.
+			// If provider doesn't set it, we might be in trouble.
+			// For now, log warning.
+			log.Printf("Child metadata missing Type, skipping %s", childExternalID)
+			continue
+		}
+
+		// Create/Update Child Entity
+		childUUID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(childExternalID))
+		
+		existingChild, err := m.repo.Get(ctx, childUUID.String())
+		var childEntity *domain.Entity
+		if err == nil {
+			childEntity = existingChild
+		} else {
+			// Determine monitored status
+			monitored := parent.MonitorNewChildren
+			if override, ok := childOverrides[childExternalID]; ok {
+				monitored = override
+			}
+
+			childEntity = &domain.Entity{
+				UUID:       childUUID,
+				ParentUUID: &parent.UUID,
+				EntityType: childType,
+				Status:     domain.StatusWanted,
+				Monitored:  monitored,
+				LocalPath:  "",
+			}
+
+			// Set default quality profile if new
+			if childConfig := m.getEntityTypeConfig(childType); childConfig != nil {
+				childEntity.QualityProfileID = m.getQualityProfileID(childConfig.DefaultQualityProfile)
+			}
+		}
+
+		// Extract local image path for child if present
+		if childMeta.Extra != nil {
+			if localPath, ok := childMeta.Extra["_local_image_path"].(string); ok {
+				childEntity.ImagePath = &localPath
+			}
+		}
+
+		childMetaJSON, _ := json.Marshal(childMeta)
+		now := time.Now()
+		childEntity.Metadata = childMetaJSON
+		childEntity.LastRefreshedAt = &now
+
+		if err := m.repo.Save(ctx, childEntity); err != nil {
+			log.Printf("Failed to save child %s: %v", childExternalID, err)
+			continue
+		}
+
+		// Recurse
+		if err := m.refreshHierarchy(ctx, childEntity, &childMeta, nil); err != nil {
+			log.Printf("Failed to refresh hierarchy for child %s: %v", childExternalID, err)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) refreshVariants(ctx context.Context, parent *domain.Entity, parentMeta *metadata.Metadata) error {
+	// Find entity type config
+	var typeConfig *config.EntityType
+	for _, et := range m.config.Schema.Entities {
+		if et.Type == parent.EntityType {
+			typeConfig = &et
 			break
 		}
 	}
 
-	if endpoint == nil {
-		log.Printf("No endpoint config found for type %s", parent.EntityType)
-		return nil
-	}
-	if len(endpoint.Children) == 0 {
-		log.Printf("No children configured for type %s", parent.EntityType)
+	if typeConfig == nil || len(typeConfig.Variants) == 0 {
 		return nil
 	}
 
-	for _, childMapping := range endpoint.Children {
-		log.Printf("Processing child mapping for type %s (Source: %s)", childMapping.EntityType, childMapping.Source)
-		// Extract children list from metadata
-		childrenRaw := utils.ExtractValue(parentMeta, childMapping.Source)
-		if childrenRaw == nil {
-			log.Printf("No children found at source %s", childMapping.Source)
-			continue
+	log.Printf("Refreshing variants for parent %s (Type: %s). Found %d variants.", parent.UUID, parent.EntityType, len(typeConfig.Variants))
+
+	for _, variantType := range typeConfig.Variants {
+		// Create deterministic UUID for variant
+		// We use parent UUID + variant type to ensure uniqueness and consistency
+		variantUUID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(parent.UUID.String()+"-"+variantType))
+
+		existingVariant, err := m.repo.Get(ctx, variantUUID.String())
+		var variantEntity *domain.Entity
+		if err == nil {
+			variantEntity = existingVariant
+		} else {
+			variantEntity = &domain.Entity{
+				UUID:       variantUUID,
+				ParentUUID: &parent.UUID,
+				EntityType: variantType,
+				Status:     domain.StatusWanted,
+				Monitored:  parent.Monitored, // Variants inherit monitored status
+				LocalPath:  "",
+			}
+
+			// Set default quality profile if new
+			if variantConfig := m.getEntityTypeConfig(variantType); variantConfig != nil {
+				variantEntity.QualityProfileID = m.getQualityProfileID(variantConfig.DefaultQualityProfile)
+			}
 		}
 
-		childrenList, ok := childrenRaw.([]interface{})
-		if !ok {
-			log.Printf("Children data at %s is not a list", childMapping.Source)
-			continue
+		// Create variant metadata based on parent metadata
+		variantMeta := *parentMeta
+		variantMeta.Type = variantType
+		// Append variant type to ID to make it unique in metadata if needed,
+		// though internally we use UUID.
+		// Ideally, the metadata ID should also be unique if we ever look it up by ID.
+		variantMeta.ID = parentMeta.ID + "-" + variantType
+		variantMeta.Title = fmt.Sprintf("%s (%s)", parentMeta.Title, variantType)
+		
+		// Clear children for variant to avoid recursion issues if we ever process it
+		variantMeta.Children = nil
+
+		variantMetaJSON, _ := json.Marshal(variantMeta)
+		now := time.Now()
+		variantEntity.Metadata = variantMetaJSON
+		variantEntity.LastRefreshedAt = &now
+
+		// Inherit image path if parent has one
+		if parent.ImagePath != nil {
+			variantEntity.ImagePath = parent.ImagePath
 		}
 
-		log.Printf("Found %d children", len(childrenList))
+		if err := m.repo.Save(ctx, variantEntity); err != nil {
+			log.Printf("Failed to save variant %s: %v", variantType, err)
+			continue
+		}
+	}
 
-		for _, childRaw := range childrenList {
-			childMap, ok := childRaw.(map[string]interface{})
-			if !ok {
-				continue
-			}
+	return nil
+}
 
-			// Determine Child External ID
-			var childExternalID string
-			
-			if childMapping.IDFormat != "" {
-				// Construct ID using format
-				id := childMapping.IDFormat
-				id = strings.ReplaceAll(id, "{ParentID}", parentExternalID)
-				
-				// Replace other placeholders from childMap
-				for k, v := range childMap {
-					placeholder := fmt.Sprintf("{%s}", k)
-					if strings.Contains(id, placeholder) {
-						id = strings.ReplaceAll(id, placeholder, fmt.Sprintf("%v", v))
-					}
-				}
-				childExternalID = id
-			} else if idVal, ok := childMap["id"]; ok {
-				childExternalID = fmt.Sprintf("%v", idVal)
-			} else {
-				log.Printf("Could not determine ID for child of type %s", childMapping.EntityType)
-				continue
-			}
-
-			var childMeta map[string]interface{}
-			childMeta = childMap
-
-			// If there is an endpoint for this child type, fetch full details
-			if m.hasEndpoint(childMapping.EntityType) {
-				log.Printf("Fetching full details for child %s (Type: %s)", childExternalID, childMapping.EntityType)
-				fetchedMeta, err := m.provider.GetMetadata(ctx, childMapping.EntityType, childExternalID)
-				if err != nil {
-					log.Printf("Failed to fetch metadata for child %s: %v", childExternalID, err)
-					// Fallback to what we have? Or skip?
-					// If we can't fetch details, we might miss children (e.g. episodes).
-					// But we can still save the season entity.
-				} else {
-					childMeta = fetchedMeta
-				}
-			}
-
-			// Create/Update Child Entity
-			childUUID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(childExternalID))
-			
-			existingChild, err := m.repo.Get(ctx, childUUID.String())
-			var childEntity *domain.Entity
-			if err == nil {
-				childEntity = existingChild
-			} else {
-				childEntity = &domain.Entity{
-					UUID:       childUUID,
-					ParentUUID: &parent.UUID,
-					EntityType: childMapping.EntityType,
-					Status:     domain.StatusWanted,
-					Monitored:  parent.Monitored,
-					LocalPath:  "",
-				}
-			}
-
-			childMetaJSON, _ := json.Marshal(childMeta)
-			now := time.Now()
-			childEntity.Metadata = childMetaJSON
-			childEntity.LastRefreshedAt = &now
-
-			if err := m.repo.Save(ctx, childEntity); err != nil {
-				log.Printf("Failed to save child %s: %v", childExternalID, err)
-				continue
-			}
-
-			// Recurse
-			if err := m.refreshHierarchy(ctx, childEntity, childMeta, childExternalID); err != nil {
-				log.Printf("Failed to refresh hierarchy for child %s: %v", childExternalID, err)
-			}
+func (m *Manager) getEntityTypeConfig(entityType string) *config.EntityType {
+	for _, et := range m.config.Schema.Entities {
+		if et.Type == entityType {
+			return &et
 		}
 	}
 	return nil
 }
 
-func (m *Manager) hasEndpoint(entityType string) bool {
-	for _, ep := range m.config.Catalog.Endpoints {
-		if ep.EntityType == entityType {
-			return true
+func (m *Manager) getQualityProfileID(name string) *int {
+	if name == "" {
+		return nil
+	}
+	for i, p := range m.config.Quality.Profiles {
+		if p.Name == name {
+			id := i
+			return &id
 		}
 	}
-	return false
+	return nil
 }

@@ -2,10 +2,18 @@ package config
 
 // AppConfig holds all the configuration for the application
 type AppConfig struct {
+	Server      ServerConfig
 	Schema      SchemaConfig
 	Catalog     CatalogConfig
 	Quality     QualityConfig
 	Acquisition AcquisitionConfig
+}
+
+// ServerConfig maps to server.yaml
+type ServerConfig struct {
+	Port             int    `yaml:"port"`
+	APIKey           string `yaml:"api_key"`
+	ImageStoragePath string `yaml:"image_storage_path"`
 }
 
 // SchemaConfig maps to schema.yaml
@@ -19,35 +27,15 @@ type EntityType struct {
 	IsLeaf   bool     `yaml:"is_leaf"`
 	Children []string `yaml:"children"`
 	HasFiles bool     `yaml:"has_files"`
+	Variants []string `yaml:"variants"`
+	DefaultQualityProfile string `yaml:"default_quality_profile"`
 }
 
 // CatalogConfig maps to catalog.yaml
 type CatalogConfig struct {
-	Provider  string            `yaml:"provider"`
-	BaseURL   string            `yaml:"base_url"`
-	APIKey    string            `yaml:"api_key"`
-	Endpoints []EndpointMapping `yaml:"endpoints"`
-}
-
-type EndpointMapping struct {
-	EntityType  string            `yaml:"entity_type"`
-	URL         string            `yaml:"url"`
-	QueryParam  string            `yaml:"query_param"` // Optional: defaults to "query"
-	ResultsKey  string            `yaml:"results_key"` // Optional: defaults to "results"
-	Attributes  map[string]string `yaml:"attributes"`  // JSONPath mappings
-	Identifiers []IdentifierMap   `yaml:"identifiers"`
-	Children    []ChildMapping    `yaml:"children"`
-}
-
-type ChildMapping struct {
-	EntityType string `yaml:"entity_type"`
-	Source     string `yaml:"source"` // JSONPath to array
-	IDFormat   string `yaml:"id_format"`
-}
-
-type IdentifierMap struct {
-	Key    string `yaml:"key"`
-	Source string `yaml:"source"` // JSONPath
+	Provider string   `yaml:"provider"`
+	APIKey   string   `yaml:"api_key"`
+	Lists    []string `yaml:"lists"`
 }
 
 // QualityConfig maps to quality.yaml

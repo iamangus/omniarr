@@ -1,0 +1,50 @@
+{{ define "content" }}
+<div class="space-y-6">
+    <!-- Header -->
+    <!-- Search Bar -->
+    <div class="w-full">
+        <div class="relative rounded-md shadow-sm">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <i class="fas fa-search text-gray-400"></i>
+            </div>
+            <form action="/view/{{ .ActiveBackendID }}/search" method="GET">
+                <input type="text"
+                       name="query"
+                       class="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-gray-700 rounded-md bg-gray-800 text-white placeholder-gray-400 py-3"
+                       placeholder="Search for {{ .ActiveBackendName }}...">
+            </form>
+        </div>
+    </div>
+
+    <!-- Curated Lists -->
+    {{ if .Lists }}
+    <div class="mt-12 space-y-12">
+        {{ range .Lists }}
+        <div>
+            <h3 class="text-xl font-bold text-white mb-4">{{ .Title }}</h3>
+            <div class="flex overflow-x-auto space-x-6 p-4 scrollbar-hide">
+                {{ range .Children }}
+                <div class="flex-none w-48 bg-gray-800 rounded-lg shadow-lg overflow-hidden cursor-pointer group relative transform transition-transform duration-200 hover:scale-105 hover:z-10"
+                     hx-get="/view/{{ $.ActiveBackendID }}/details?id={{ .ID }}&type={{ .Type }}"
+                     hx-target="#modal-container"
+                     hx-swap="innerHTML"
+                     hx-trigger="click">
+                    <div class="relative w-full" style="aspect-ratio: 2/3;">
+                        {{ if .Image }}
+                        <img src="{{ .Image }}" alt="{{ .Title }}" class="object-cover w-full h-full">
+                        {{ else }}
+                        <div class="w-full h-full bg-gray-700 flex items-center justify-center">
+                            <i class="fas fa-book text-4xl text-gray-500"></i>
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+                {{ end }}
+            </div>
+        </div>
+        {{ end }}
+    </div>
+    {{ end }}
+
+</div>
+{{ end }}

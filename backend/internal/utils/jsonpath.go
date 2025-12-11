@@ -24,15 +24,41 @@ func ExtractValue(data interface{}, path string) interface{} {
 	current := data
 
 	for _, part := range parts {
-		m, ok := current.(map[string]interface{})
-		if !ok {
-			return nil
+		// Check for array index: key[0]
+		var index int = -1
+		key := part
+		if idx := strings.Index(part, "["); idx != -1 && strings.HasSuffix(part, "]") {
+			idxStr := part[idx+1 : len(part)-1]
+			if i, err := strconv.Atoi(idxStr); err == nil {
+				index = i
+				key = part[:idx]
+			}
 		}
-		val, exists := m[part]
-		if !exists {
-			return nil
+
+		// Navigate map
+		if key != "" {
+			m, ok := current.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			val, exists := m[key]
+			if !exists {
+				return nil
+			}
+			current = val
 		}
-		current = val
+
+		// Navigate array if index was present
+		if index != -1 {
+			arr, ok := current.([]interface{})
+			if !ok {
+				return nil
+			}
+			if index < 0 || index >= len(arr) {
+				return nil
+			}
+			current = arr[index]
+		}
 	}
 
 	if sliceEnd != -1 {

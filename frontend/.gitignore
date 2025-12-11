@@ -1,0 +1,18 @@
+# Binaries
+bin/
+omniarr-frontend
+*.exe
+*.test
+*.out
+
+# Configs
+frontend-config.yaml
+*.local.yaml
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Editor specific
+.vscode/
+.idea/
