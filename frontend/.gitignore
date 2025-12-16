@@ -1,6 +1,5 @@
 # Binaries
 bin/
-omniarr-frontend
 *.exe
 *.test
 *.out
