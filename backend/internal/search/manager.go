@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"regexp"
 	"sort"
+	"strings"
 
 	"omniarr/internal/config"
 	"omniarr/internal/database"
@@ -121,7 +121,7 @@ func (m *SearchManager) searchLeafEntity(ctx context.Context, entity *domain.Ent
 func (m *SearchManager) buildQuery(ctx context.Context, entity *domain.Entity) (string, error) {
 	// Collect metadata from entity and all parents
 	data := make(map[string]interface{})
-	
+
 	current := entity
 	for {
 		var meta map[string]interface{}
@@ -132,13 +132,25 @@ func (m *SearchManager) buildQuery(ctx context.Context, entity *domain.Entity) (
 			// Merge metadata (child overrides parent if collision, but we usually namespace or use distinct keys)
 			// Ideally we should namespace by EntityType? e.g. {Series: {...}, Season: {...}}
 			// The config uses {Series.Title}, so we should structure it that way.
-			
+
 			// Capitalize first letter of entity type for consistency with config (Series, Season, Episode)
 			// Or just use the type as is. Config uses "Series", "Season".
 			// Let's assume Title Case.
 			key := strings.Title(current.EntityType)
+
+			// Ensure keys are Title Case for template matching (e.g. {Book.Title} matches "title" in json)
+			for k, v := range meta {
+				if len(k) > 0 {
+					// Simple capitalization of first letter
+					newKey := strings.ToUpper(k[:1]) + k[1:]
+					if _, exists := meta[newKey]; !exists {
+						meta[newKey] = v
+					}
+				}
+			}
+
 			data[key] = meta
-			
+
 			// Also flatten for direct access if needed?
 			// {Title} usually refers to the leaf title?
 			// In "Series S01E01", {Title} is Series Title.
@@ -151,12 +163,12 @@ func (m *SearchManager) buildQuery(ctx context.Context, entity *domain.Entity) (
 			// But where do these come from?
 			// If we namespace, we'd need {Series.Title}.
 			// If we don't namespace, we have collisions (Series Title vs Episode Title).
-			
+
 			// Let's look at catalog.yaml:
 			// Series attributes: Title
 			// Season attributes: Title (Season 1), SeasonNumber
 			// Episode attributes: Title (Episode Name), SeasonNumber (maybe?), EpisodeNumber (implied?)
-			
+
 			// If we flatten, Episode Title overwrites Series Title.
 			// So we MUST namespace.
 			// But the config `search_query_format: "{Title} S{Season:02d}E{Episode:02d}"`
@@ -165,17 +177,17 @@ func (m *SearchManager) buildQuery(ctx context.Context, entity *domain.Entity) (
 			// OR the user config is wrong/simplified.
 			// Let's assume we expose namespaced data: data["Series"]["Title"]
 			// And maybe we also expose "Title" as the Root Entity Title?
-			
+
 			// Let's stick to namespacing as seen in `naming` config:
 			// folder: "/tv/{Series.Title} ({Series.Year})"
 			// file: "{Series.Title} - S{Season:02d}E{Episode:02d} - {Title} - {Quality}.{Ext}"
 			// Here {Title} likely means Episode Title.
-			
+
 			// So for search query: "{Title} S{Season:02d}E{Episode:02d}"
 			// If {Title} is Episode Title, searching "My Episode Name S01E01" is wrong.
 			// It should be "Series Name S01E01".
 			// So the config should probably be "{Series.Title} ..."
-			
+
 			// However, I should support what's in the config.
 			// If the config says {Title}, and I provide {Series.Title}, it won't match.
 			// I'll provide both namespaced and flattened (with child winning).
@@ -193,90 +205,7 @@ func (m *SearchManager) buildQuery(ctx context.Context, entity *domain.Entity) (
 		current = parent
 	}
 
-	return m.resolveTemplate(m.config.SearchQueryFormat, data)
-}
-
-func (m *SearchManager) resolveTemplate(template string, data map[string]interface{}) (string, error) {
-	// Simple template resolver that handles {Key} and {Key:Format}
-	// Supports dot notation for nested keys (e.g. {Series.Title})
-	
-	result := template
-	
-	// Find all placeholders {Key} or {Key:Format}
-	// Since we don't have regex imported (wait, I can import regexp), I'll do a simple loop or assume specific format.
-	// But to be generic, I should parse it.
-	// Let's use a simple approach: iterate over the template and find { ... }
-	
-	start := 0
-	for {
-		startIdx := strings.Index(result[start:], "{")
-		if startIdx == -1 {
-			break
-		}
-		startIdx += start
-		
-		endIdx := strings.Index(result[startIdx:], "}")
-		if endIdx == -1 {
-			break
-		}
-		endIdx += startIdx
-		
-		fullPlaceholder := result[startIdx : endIdx+1] // e.g. "{Series.Title}" or "{Season.SeasonNumber:02d}"
-		content := result[startIdx+1 : endIdx]         // e.g. "Series.Title" or "Season.SeasonNumber:02d"
-		
-		// Parse content for format
-		parts := strings.Split(content, ":")
-		keyPath := parts[0]
-		format := ""
-		if len(parts) > 1 {
-			format = parts[1]
-		}
-		
-		// Resolve value
-		val := utils.ExtractValue(data, keyPath)
-		if val != nil {
-			replacement := fmt.Sprintf("%v", val)
-			
-			// Apply format if needed
-			if format == "02d" {
-				if i, ok := toInt(val); ok {
-					replacement = fmt.Sprintf("%02d", i)
-				}
-			}
-			
-			result = strings.Replace(result, fullPlaceholder, replacement, 1)
-			// Don't advance start, as the string length changed and we might have replaced something.
-			// But we replaced one instance. If there are duplicates, we handle them next loop.
-			// Actually, Replace(..., 1) replaces the first occurrence.
-			// If we have multiple same placeholders, we should replace all?
-			// strings.ReplaceAll is better if the value is static.
-			// But here we are iterating.
-			// Let's use ReplaceAll for this specific placeholder.
-			// But wait, if we use ReplaceAll, we might replace future occurrences.
-			// That's fine.
-			// But we need to restart search or adjust index?
-			// If we use ReplaceAll, we should just continue loop from 0?
-			// Or better: find unique placeholders first, then replace.
-		} else {
-			// Value not found, leave placeholder or replace with empty?
-			// Leave it for debugging?
-			start = endIdx + 1
-		}
-	}
-	
-	return result, nil
-}
-
-
-func toInt(v interface{}) (int, bool) {
-	switch i := v.(type) {
-	case int:
-		return i, true
-	case float64:
-		return int(i), true
-	default:
-		return 0, false
-	}
+	return utils.ResolveTemplate(m.config.SearchQueryFormat, data)
 }
 
 // processResults parses, scores, and returns the best candidate.

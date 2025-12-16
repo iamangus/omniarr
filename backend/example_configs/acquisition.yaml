@@ -1,0 +1,19 @@
+search_query_format: "{Book.Title} {Book.Authors}"
+naming:
+  folder: "/books/{Book.Authors}/{Book.Title} ({Book.Year})"
+  file: "{Book.Title} - {Book.Authors} - {Quality}.{Ext}"
+download_client:
+  type: "sabnzbd"
+  category: "books"
+  host: "localhost"
+  port: 8080
+  username: "YOUR_USERNAME"
+  password: "YOUR_PASSWORD"
+  api_key: "YOUR_SABNZBD_API_KEY"
+  use_ssl: false
+indexers:
+  - name: "Prowlarr"
+    type: "torznab"
+    url: "http://localhost:9696/api/v1"
+    api_key: "YOUR_PROWLARR_API_KEY"
+    categories: [7000, 7020, 8000] # Ebook categories

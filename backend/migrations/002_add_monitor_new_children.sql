@@ -1,1 +1,0 @@
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS monitor_new_children BOOLEAN DEFAULT TRUE;
