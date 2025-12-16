@@ -66,7 +66,7 @@ func (m *ImportManager) ScanDownloadFolder(ctx context.Context) error {
 		if err != nil {
 			// Entity not found for this download ID.
 			// Could attempt name parsing here as fallback, but for now skip.
-			// log.Printf("No entity found for download ID %s (%s)", item.ID, item.Name)
+			log.Printf("No entity found for download ID %s (%s)", item.ID, item.Name)
 			continue
 		}
 

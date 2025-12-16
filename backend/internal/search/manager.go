@@ -113,6 +113,12 @@ func (m *SearchManager) searchLeafEntity(ctx context.Context, entity *domain.Ent
 			return fmt.Errorf("failed to send to download client: %w", err)
 		}
 		fmt.Printf("Sent to download client. ID: %s\n", id)
+
+		// 5. Update Entity with Download Client ID
+		entity.DownloadClientID = &id
+		if err := m.repo.Save(ctx, entity); err != nil {
+			return fmt.Errorf("failed to save entity download ID: %w", err)
+		}
 	}
 
 	return nil
