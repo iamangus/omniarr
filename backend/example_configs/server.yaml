@@ -1,3 +1,0 @@
-port: 8085
-api_key: "YOUR_OMNIARR_API_KEY"
-image_storage_path: "./images"

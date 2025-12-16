@@ -45,12 +45,12 @@ func (m *MockDownloadClient) GetQueue(ctx context.Context) ([]download.DownloadI
 
 func main() {
 	// 1. Load Configuration
-	configDir := os.Getenv("CONFIG_DIR")
-	if configDir == "" {
-		configDir = "config"
+	configFile := os.Getenv("CONFIG_FILE")
+	if configFile == "" {
+		configFile = "config/config.yaml"
 	}
 
-	cfg, err := config.LoadConfig(configDir)
+	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}

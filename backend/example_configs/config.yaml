@@ -1,0 +1,57 @@
+server:
+  port: 8085
+  api_key: "YOUR_OMNIARR_API_KEY"
+  image_storage_path: "./images"
+
+schema:
+  root_entity: "book"
+  entities:
+    - type: "book"
+      is_leaf: true
+      has_files: true
+
+catalog:
+  provider: "tvdb"
+  api_key: "YOUR_TVDB_API_KEY"
+  lists:
+    - "12345" # Example List ID
+
+quality:
+  profiles:
+    - name: "Any"
+      cutoff: "EPUB"
+      items:
+        - name: "EPUB"
+          score: 1000
+        - name: "PDF"
+          score: 500
+        - name: "MOBI"
+          score: 300
+  definitions:
+    - name: "EPUB"
+      regex: "(epub|EPUB)"
+    - name: "PDF"
+      regex: "(pdf|PDF)"
+    - name: "MOBI"
+      regex: "(mobi|MOBI)"
+
+acquisition:
+  search_query_format: "{Book.Title} {Book.Authors}"
+  naming:
+    folder: "/books/{Book.Authors}/{Book.Title} ({Book.Year})"
+    file: "{Book.Title} - {Book.Authors} - {Quality}.{Ext}"
+  download_client:
+    type: "sabnzbd"
+    category: "books"
+    host: "localhost"
+    port: 8080
+    username: "YOUR_USERNAME"
+    password: "YOUR_PASSWORD"
+    api_key: "YOUR_SABNZBD_API_KEY"
+    use_ssl: false
+  indexers:
+    - name: "Prowlarr"
+      type: "torznab"
+      url: "http://localhost:9696/api/v1"
+      api_key: "YOUR_PROWLARR_API_KEY"
+      categories: [7000, 7020, 8000] # Ebook categories

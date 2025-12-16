@@ -2,11 +2,11 @@ package config
 
 // AppConfig holds all the configuration for the application
 type AppConfig struct {
-	Server      ServerConfig
-	Schema      SchemaConfig
-	Catalog     CatalogConfig
-	Quality     QualityConfig
-	Acquisition AcquisitionConfig
+	Server      ServerConfig      `yaml:"server"`
+	Schema      SchemaConfig      `yaml:"schema"`
+	Catalog     CatalogConfig     `yaml:"catalog"`
+	Quality     QualityConfig     `yaml:"quality"`
+	Acquisition AcquisitionConfig `yaml:"acquisition"`
 }
 
 // ServerConfig maps to server.yaml
