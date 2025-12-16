@@ -159,6 +159,44 @@ func (m *ImportManager) ImportFile(ctx context.Context, sourcePath string, relea
 	return nil
 }
 
+func (m *ImportManager) buildDataMap(ctx context.Context, entity *domain.Entity) (map[string]interface{}, error) {
+	data := make(map[string]interface{})
+
+	current := entity
+	for {
+		var meta map[string]interface{}
+		if len(current.Metadata) > 0 {
+			if err := json.Unmarshal(current.Metadata, &meta); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal metadata for %s: %w", current.UUID, err)
+			}
+			key := strings.Title(current.EntityType)
+
+			// Ensure keys are Title Case for template matching (e.g. {Book.Title} matches "title" in json)
+			for k, v := range meta {
+				if len(k) > 0 {
+					// Simple capitalization of first letter
+					newKey := strings.ToUpper(k[:1]) + k[1:]
+					if _, exists := meta[newKey]; !exists {
+						meta[newKey] = v
+					}
+				}
+			}
+
+			data[key] = meta
+		}
+
+		if current.ParentUUID == nil {
+			break
+		}
+		parent, err := m.repo.Get(ctx, current.ParentUUID.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to get parent %s: %w", current.ParentUUID, err)
+		}
+		current = parent
+	}
+	return data, nil
+}
+
 func (m *ImportManager) findMainFile(path string) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {

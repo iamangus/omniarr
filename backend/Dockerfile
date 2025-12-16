@@ -24,12 +24,12 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o omniarr ./cmd/omniarr
 
 # Run Stage
-FROM scratch
+FROM alpine:latest
 
 WORKDIR /app
 
-# Copy CA certificates
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# Install ffmpeg (for ffprobe) and ca-certificates
+RUN apk add --no-cache ffmpeg ca-certificates
 
 # Copy the Pre-built binary
 COPY --from=builder /app/omniarr .
