@@ -165,6 +165,18 @@ func (m *ImportManager) buildDataMap(ctx context.Context, entity *domain.Entity)
 				return nil, fmt.Errorf("failed to unmarshal metadata for %s: %w", current.UUID, err)
 			}
 			key := strings.Title(current.EntityType)
+
+			// Ensure keys are Title Case for template matching (e.g. {Book.Title} matches "title" in json)
+			for k, v := range meta {
+				if len(k) > 0 {
+					// Simple capitalization of first letter
+					newKey := strings.ToUpper(k[:1]) + k[1:]
+					if _, exists := meta[newKey]; !exists {
+						meta[newKey] = v
+					}
+				}
+			}
+
 			data[key] = meta
 		}
 
