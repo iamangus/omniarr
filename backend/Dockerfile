@@ -15,7 +15,7 @@ RUN go mod download
 # Copy the source code explicitly to ensure they are present
 COPY cmd ./cmd
 COPY internal ./internal
-COPY config ./config
+RUN mkdir config
 # Copy any other necessary files
 COPY . .
 

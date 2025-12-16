@@ -6,7 +6,7 @@
 *.out
 
 # Configs (User specific)
-config/
+config/*
 images/*
 
 # OS specific
