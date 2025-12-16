@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-"encoding/json"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -66,7 +66,7 @@ func (s *Server) GetConfig(c *gin.Context) {
 func (s *Server) GetEntities(c *gin.Context) {
 	// Optional: Add filtering parameters here if needed
 	criteria := make(map[string]interface{})
-	
+
 	entities, err := s.Repo.Find(c.Request.Context(), criteria)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -328,7 +328,7 @@ func (s *Server) ForceImport(c *gin.Context) {
 		return
 	}
 
-	if err := s.ImportManager.ImportFile(c.Request.Context(), req.FilePath, entity); err != nil {
+	if err := s.ImportManager.ImportFile(c.Request.Context(), req.FilePath, "Manual Import", entity); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
