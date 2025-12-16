@@ -20,7 +20,12 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "frontend-config.yaml", "Path to configuration file")
+	defaultConfig := "frontend-config.yaml"
+	if envConfig := os.Getenv("OMNIARR_FRONTEND_CONFIG"); envConfig != "" {
+		defaultConfig = envConfig
+	}
+
+	configPath := flag.String("config", defaultConfig, "Path to configuration file")
 	flag.Parse()
 
 	// Load Configuration

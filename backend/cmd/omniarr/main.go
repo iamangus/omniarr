@@ -17,6 +17,7 @@ import (
 	downloadProvider "omniarr/internal/providers/download"
 	"omniarr/internal/providers/metadata/googlebooks"
 	"omniarr/internal/providers/metadata/hardcover"
+	"omniarr/internal/providers/metadata/tmdb"
 	"omniarr/internal/providers/metadata/tvdb"
 	"omniarr/internal/search"
 	"strings"
@@ -89,6 +90,8 @@ func main() {
 		metaProvider = hardcover.New(cfg.Catalog.APIKey)
 	case "tvdb":
 		metaProvider = tvdb.New(cfg.Catalog.APIKey)
+	case "tmdb":
+		metaProvider = tmdb.New(cfg.Catalog.APIKey)
 	default:
 		log.Printf("Unknown provider: %s. Defaulting to GoogleBooks.", cfg.Catalog.Provider)
 		metaProvider = googlebooks.New(cfg.Catalog.APIKey)
