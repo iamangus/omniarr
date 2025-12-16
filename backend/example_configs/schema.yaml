@@ -1,0 +1,5 @@
+root_entity: "book"
+entities:
+  - type: "book"
+    is_leaf: true
+    has_files: true

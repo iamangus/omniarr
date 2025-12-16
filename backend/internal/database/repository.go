@@ -91,7 +91,7 @@ func (r *EntityRepository) Find(ctx context.Context, criteria map[string]interfa
 					if entity.EntityType != value {
 						match = false
 					}
-				// Add other fields as needed
+					// Add other fields as needed
 				}
 				if !match {
 					break
@@ -143,6 +143,25 @@ func (r *EntityRepository) FindStale(ctx context.Context, olderThan time.Time) (
 	return entities, nil
 }
 
+func (r *EntityRepository) FindByDownloadClientID(ctx context.Context, clientID string) (*domain.Entity, error) {
+	if r.isMock {
+		for _, entity := range r.mockData {
+			if entity.DownloadClientID != nil && *entity.DownloadClientID == clientID {
+				e := *entity
+				return &e, nil
+			}
+		}
+		return nil, fmt.Errorf("entity not found")
+	}
+
+	var entity domain.Entity
+	err := r.db.GetContext(ctx, &entity, "SELECT * FROM entities WHERE download_client_id = $1", clientID)
+	if err != nil {
+		return nil, err
+	}
+	return &entity, nil
+}
+
 func (r *EntityRepository) Save(ctx context.Context, e *domain.Entity) error {
 	if r.isMock {
 		r.mockData[e.UUID.String()] = e
@@ -157,8 +176,8 @@ func (r *EntityRepository) Save(ctx context.Context, e *domain.Entity) error {
 
 	// 1. Upsert Entity
 	query := `
-		INSERT INTO entities (uuid, parent_uuid, entity_type, status, monitored, last_refreshed_at, quality_profile_id, local_path, image_path, metadata, monitor_new_children, requested_by, requested_at)
-		VALUES (:uuid, :parent_uuid, :entity_type, :status, :monitored, :last_refreshed_at, :quality_profile_id, :local_path, :image_path, :metadata, :monitor_new_children, :requested_by, :requested_at)
+		INSERT INTO entities (uuid, parent_uuid, entity_type, status, monitored, last_refreshed_at, quality_profile_id, local_path, image_path, metadata, monitor_new_children, requested_by, requested_at, download_client_id)
+		VALUES (:uuid, :parent_uuid, :entity_type, :status, :monitored, :last_refreshed_at, :quality_profile_id, :local_path, :image_path, :metadata, :monitor_new_children, :requested_by, :requested_at, :download_client_id)
 		ON CONFLICT (uuid) DO UPDATE SET
 		status = :status,
 		monitored = :monitored,
@@ -169,7 +188,8 @@ func (r *EntityRepository) Save(ctx context.Context, e *domain.Entity) error {
 		metadata = :metadata,
 		monitor_new_children = :monitor_new_children,
 		requested_by = COALESCE(entities.requested_by, :requested_by),
-		requested_at = COALESCE(entities.requested_at, :requested_at)
+		requested_at = COALESCE(entities.requested_at, :requested_at),
+		download_client_id = :download_client_id
 	`
 	_, err = tx.NamedExecContext(ctx, query, e)
 	if err != nil {
@@ -186,7 +206,7 @@ func (r *EntityRepository) Save(ctx context.Context, e *domain.Entity) error {
 	// Extract and insert new identifiers
 	identifiers, err := r.extractIdentifiers(e)
 	if err != nil {
-		// Log error but maybe don't fail the whole save? 
+		// Log error but maybe don't fail the whole save?
 		// For now, let's fail to ensure data consistency.
 		return fmt.Errorf("failed to extract identifiers: %w", err)
 	}

@@ -1,28 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ .Title }} - OmniArr</title>
+    
+    <!-- Franken UI / Fonts -->
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <style>
+      :root {
+        font-family: Inter, sans-serif;
+        font-feature-settings: "liga" 1, "calt" 1;
+      }
+      @supports (font-variation-settings: normal) {
+        :root {
+          font-family: InterVariable, sans-serif;
+        }
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/franken-ui@next/dist/css/core.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/franken-ui@next/dist/css/utilities.min.css"
+    />
+
+    <!-- Theme Initialization -->
+    <script>
+      const htmlElement = document.documentElement;
+      const __FRANKEN__ = JSON.parse(
+        localStorage.getItem("__FRANKEN__") || "{}"
+      );
+
+      if (
+        __FRANKEN__.mode === "dark" ||
+        (!__FRANKEN__.mode &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches)
+      ) {
+        htmlElement.classList.add("dark");
+      } else {
+        htmlElement.classList.remove("dark");
+      }
+
+      htmlElement.classList.add(__FRANKEN__.theme || "uk-theme-zinc");
+      htmlElement.classList.add(__FRANKEN__.radii || "uk-radii-md");
+      htmlElement.classList.add(__FRANKEN__.shadows || "uk-shadows-sm");
+      htmlElement.classList.add(__FRANKEN__.font || "uk-font-sm");
+      htmlElement.classList.add(__FRANKEN__.chart || "uk-chart-default");
+    </script>
+
+    <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-</head>
-<body class="bg-gray-900 text-gray-100 font-sans min-h-screen flex flex-col">
+    
+    <!-- Franken UI Core JS -->
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/npm/franken-ui@next/dist/js/core.iife.js"
+    ></script>
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/npm/franken-ui@next/dist/js/icon.iife.js"
+    ></script>
+  </head>
+  <body class="bg-background text-foreground font-sans antialiased min-h-screen flex flex-col">
 
     <!-- Navigation -->
-    <nav class="bg-gray-800 border-b border-gray-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <nav class="border-b border-border bg-card">
+        <div class="uk-container uk-container-xl">
             <div class="flex items-center justify-between h-16">
                 <div class="flex items-center">
                     <div class="flex-shrink-0">
-                        <span class="text-xl font-bold text-indigo-500">OmniArr</span>
+                        <span class="text-xl font-bold text-primary">OmniArr</span>
                     </div>
                     <div class="hidden md:block">
-                        <div class="ml-10 flex items-baseline space-x-4">
+                        <div class="ml-10 flex items-center space-x-4">
                             {{ range .Backends }}
-                            <a href="/view/{{ .ID }}" class="text-gray-300 hover:bg-gray-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium {{ if eq $.ActiveBackend .ID }}bg-gray-900 text-white{{ end }}">
-                                <i class="fas fa-{{ .Icon }} mr-2"></i>{{ .Name }}
+                            <a href="/view/{{ .ID }}" class="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium hover:text-primary {{ if eq $.ActiveBackend .ID }}bg-secondary text-secondary-foreground{{ else }}text-muted-foreground{{ end }}">
+                                <uk-icon icon="{{ .Icon }}" class="mr-2"></uk-icon>{{ .Name }}
                             </a>
                             {{ end }}
                         </div>
@@ -32,14 +90,14 @@
                     <div class="ml-4 flex items-center md:ml-6">
                         {{ if .User }}
                         {{ if .User.IsAdmin }}
-                        <a href="/admin" class="text-gray-300 hover:bg-gray-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium mr-4">
-                            <i class="fas fa-cog mr-2"></i>Admin
+                        <a href="/admin" class="inline-flex items-center text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium mr-4">
+                            <uk-icon icon="settings" class="mr-2"></uk-icon>Admin
                         </a>
                         {{ end }}
-                        <span class="text-gray-300 text-sm mr-4">{{ .User.Email }}</span>
-                        <a href="/logout" class="text-gray-300 hover:bg-gray-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Logout</a>
+                        <span class="text-muted-foreground text-sm mr-4">{{ .User.Email }}</span>
+                        <a href="/logout" class="uk-btn uk-btn-default uk-btn-sm">Logout</a>
                         {{ else }}
-                        <a href="/login" class="text-gray-300 hover:bg-gray-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Login</a>
+                        <a href="/login" class="uk-btn uk-btn-primary uk-btn-sm">Login</a>
                         {{ end }}
                     </div>
                 </div>
@@ -48,18 +106,20 @@
     </nav>
 
     <!-- Main Content -->
-    <main class="flex-grow w-full px-4 sm:px-6 lg:px-8 py-8">
-        {{ template "content" . }}
+    <main class="flex-grow w-full py-8">
+        <div class="uk-container uk-container-xl">
+            {{ template "content" . }}
+        </div>
     </main>
 
     <!-- Footer -->
-    <footer class="bg-gray-800 border-t border-gray-700 mt-auto">
-        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <p class="text-center text-gray-400 text-sm">&copy; 2025 OmniArr. All rights reserved.</p>
+    <footer class="border-t border-border bg-card mt-auto">
+        <div class="uk-container uk-container-xl py-6">
+            <p class="text-center text-muted-foreground text-sm">&copy; 2025 OmniArr. All rights reserved.</p>
         </div>
     </footer>
 
     <div id="modal-container"></div>
 
-</body>
+  </body>
 </html>

@@ -7,8 +7,7 @@ omniarr
 *.out
 
 # Configs (User specific)
-config/*.yaml
-example_configs/*
+config/
 images/*
 
 # OS specific

@@ -1,0 +1,4 @@
+provider: "tvdb"
+api_key: "YOUR_TVDB_API_KEY"
+lists:
+  - "12345" # Example List ID
