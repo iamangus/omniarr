@@ -101,10 +101,11 @@ type sabnzbdHistoryResponse struct {
 type sabnzbdQueueResponse struct {
 	Queue struct {
 		Slots []struct {
-			NzoID    string `json:"nzo_id"`
-			Filename string `json:"filename"`
-			Status   string `json:"status"`
-			Cat      string `json:"cat"`
+			NzoID      string `json:"nzo_id"`
+			Filename   string `json:"filename"`
+			Status     string `json:"status"`
+			Cat        string `json:"cat"`
+			Percentage string `json:"percentage"`
 		} `json:"slots"`
 	} `json:"queue"`
 }
@@ -192,6 +193,7 @@ func (c *SabnzbdClient) GetQueue(ctx context.Context) ([]download.DownloadItem, 
 			Name:     slot.Filename,
 			Status:   slot.Status, // e.g., "Downloading", "Paused"
 			Category: slot.Cat,
+			Progress: slot.Percentage,
 		})
 	}
 	return items, nil

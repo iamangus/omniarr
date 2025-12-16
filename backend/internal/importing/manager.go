@@ -39,7 +39,17 @@ func NewImportManager(repo *database.EntityRepository, downloadClient download.D
 func (m *ImportManager) ScanDownloadFolder(ctx context.Context) error {
 	log.Println("Scanning download folder...")
 
-	// 1. Get completed items from Download Client
+	// 1. Check Queue and Log Progress
+	queueItems, err := m.downloadClient.GetQueue(ctx)
+	if err != nil {
+		log.Printf("Failed to get download queue: %v", err)
+	} else {
+		for _, item := range queueItems {
+			log.Printf("[Download Queue] %s: %s (%s%%)", item.Name, item.Status, item.Progress)
+		}
+	}
+
+	// 2. Get completed items from Download Client
 	items, err := m.downloadClient.GetHistory(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get download history: %w", err)
@@ -51,7 +61,7 @@ func (m *ImportManager) ScanDownloadFolder(ctx context.Context) error {
 			continue
 		}
 
-		// 2. Identify the Entity
+		// 3. Identify the Entity
 		entity, err := m.repo.FindByDownloadClientID(ctx, item.ID)
 		if err != nil {
 			// Entity not found for this download ID.
@@ -60,14 +70,14 @@ func (m *ImportManager) ScanDownloadFolder(ctx context.Context) error {
 			continue
 		}
 
-		// 3. Check if already imported
+		// 4. Check if already imported
 		if entity.Status == domain.StatusDownloaded {
 			// Already imported, skip.
 			// Unless we want to force re-import? For now, skip.
 			continue
 		}
 
-		// 4. Import
+		// 5. Import
 		log.Printf("Found completed download for entity %s: %s", entity.UUID, item.Name)
 		if err := m.ImportFile(ctx, item.Path, entity); err != nil {
 			log.Printf("Failed to import file %s: %v", item.Path, err)

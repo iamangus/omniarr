@@ -9,6 +9,7 @@ type DownloadItem struct {
 	Status   string // "Queued", "Downloading", "Completed", "Failed"
 	Path     string // File path on disk (for completed items)
 	Category string
+	Progress string // Percentage complete (e.g., "45")
 }
 
 // DownloadClient defines the interface for interacting with download clients (e.g., NZBGet, SabNZBD).
