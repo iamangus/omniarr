@@ -12,10 +12,15 @@ COPY go.mod go.sum ./
 # Download all dependencies
 RUN go mod download
 
-# Copy the source
+# Copy the source code explicitly to ensure they are present
+COPY cmd ./cmd
+COPY internal ./internal
+COPY config ./config
+# Copy any other necessary files
 COPY . .
 
 # Build the Go app
+# Added ls to debug if it fails again, but explicit COPY should catch missing files earlier
 RUN CGO_ENABLED=0 GOOS=linux go build -o omniarr ./cmd/omniarr
 
 # Run Stage
