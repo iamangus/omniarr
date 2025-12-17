@@ -20,6 +20,7 @@ func NewRouter(server *Server, apiKey string) *gin.Engine {
 
 	// Entities
 	r.GET("/entities", server.GetEntities)
+	r.GET("/entities/:uuid", server.GetEntity)
 	r.POST("/entities", server.CreateEntity)
 	r.PUT("/entities/:uuid", server.UpdateEntity)
 	r.DELETE("/entities/:uuid", server.DeleteEntity)

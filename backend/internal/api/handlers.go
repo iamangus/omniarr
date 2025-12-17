@@ -64,8 +64,22 @@ func (s *Server) GetConfig(c *gin.Context) {
 
 // GetEntities returns all tracked entities
 func (s *Server) GetEntities(c *gin.Context) {
-	// Optional: Add filtering parameters here if needed
 	criteria := make(map[string]interface{})
+
+	// Filter by Entity Type (e.g., "movie", "series", "season", "episode")
+	if t := c.Query("type"); t != "" {
+		criteria["entity_type"] = t
+	}
+
+	// Filter by Parent UUID (e.g., get seasons for a show)
+	if p := c.Query("parent"); p != "" {
+		criteria["parent_uuid"] = p
+	}
+
+	// Filter by Status (e.g., "DOWNLOADED", "WANTED")
+	if st := c.Query("status"); st != "" {
+		criteria["status"] = st
+	}
 
 	entities, err := s.Repo.Find(c.Request.Context(), criteria)
 	if err != nil {
@@ -74,6 +88,23 @@ func (s *Server) GetEntities(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, entities)
+}
+
+// GetEntity returns a single entity by UUID
+func (s *Server) GetEntity(c *gin.Context) {
+	id := c.Param("uuid")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid parameter is required"})
+		return
+	}
+
+	entity, err := s.Repo.Get(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "entity not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, entity)
 }
 
 // LookupCatalog searches for new content to add
