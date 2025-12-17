@@ -12,6 +12,9 @@ func NewRouter(server *Server, apiKey string) *gin.Engine {
 
 	// System
 	r.GET("/system/config", server.GetConfig)
+	r.GET("/system/media-types", server.GetMediaTypes)
+	r.GET("/system/architecture", server.GetArchitecture)
+	r.GET("/system/providers", server.GetProviders)
 
 	// Catalog
 	r.GET("/catalog/lookup", server.LookupCatalog)
@@ -21,6 +24,9 @@ func NewRouter(server *Server, apiKey string) *gin.Engine {
 	// Entities
 	r.GET("/entities", server.GetEntities)
 	r.GET("/entities/:uuid", server.GetEntity)
+	r.GET("/entities/:uuid/hierarchy", server.GetEntityHierarchy)
+	r.GET("/entities/:uuid/children", server.GetEntityChildren)
+	r.GET("/entities/:uuid/descendants", server.GetEntityDescendants)
 	r.POST("/entities", server.CreateEntity)
 	r.PUT("/entities/:uuid", server.UpdateEntity)
 	r.DELETE("/entities/:uuid", server.DeleteEntity)

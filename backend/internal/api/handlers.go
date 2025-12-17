@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,11 +55,280 @@ func NewServer(
 	}
 }
 
-// GetConfig returns the system configuration
+// GetConfig returns the system configuration with enhanced information for yaffw discovery
+func (s *Server) buildMediaTypesInfo() []config.MediaTypeInfo {
+	mediaTypes := make([]config.MediaTypeInfo, 0, len(s.SchemaConfig.Entities))
+
+	for _, entity := range s.SchemaConfig.Entities {
+		mediaType := config.MediaTypeInfo{
+			Name:           entity.Type,
+			DisplayName:    s.formatEntityName(entity.Type),
+			Description:    s.getEntityDescription(entity.Type),
+			Icon:           s.getEntityIcon(entity.Type),
+			IsLeaf:         entity.IsLeaf,
+			HasFiles:       entity.HasFiles,
+			ParentTypes:    s.getParentTypes(entity.Type),
+			ChildTypes:     entity.Children,
+			Variants:       entity.Variants,
+			QualityProfile: entity.DefaultQualityProfile,
+		}
+		mediaTypes = append(mediaTypes, mediaType)
+	}
+
+	return mediaTypes
+}
+
+// buildProviderInfo converts catalog configuration to provider information
+func (s *Server) buildProviderInfo() []config.ProviderInfo {
+	providers := []config.ProviderInfo{}
+
+	if s.CatalogConfig != nil && s.CatalogConfig.Provider != "" {
+		provider := config.ProviderInfo{
+			Name:           s.CatalogConfig.Provider,
+			Type:           "metadata",
+			Available:      true, // TODO: Add actual availability check
+			SupportedTypes: s.getSupportedTypesForProvider(s.CatalogConfig.Provider),
+		}
+		providers = append(providers, provider)
+	}
+
+	return providers
+}
+
+// getSystemFeatures returns available system features
+func (s *Server) getSystemFeatures() []string {
+	features := []string{}
+
+	if s.SearchManager != nil {
+		features = append(features, "search")
+	}
+
+	if s.ImportManager != nil {
+		features = append(features, "import")
+	}
+
+	if s.LifecycleManager != nil {
+		features = append(features, "lifecycle_management")
+	}
+
+	if s.MetadataManager != nil {
+		features = append(features, "metadata_fetching")
+	}
+
+	if s.ImageStoragePath != "" {
+		features = append(features, "image_serving")
+	}
+
+	return features
+}
+
+// Helper methods for formatting and descriptions
+func (s *Server) formatEntityName(entityType string) string {
+	switch entityType {
+	case "movie":
+		return "Movies"
+	case "series":
+		return "TV Series"
+	case "season":
+		return "Seasons"
+	case "episode":
+		return "Episodes"
+	case "book":
+		return "Books"
+	case "chapter":
+		return "Chapters"
+	case "album":
+		return "Albums"
+	case "track":
+		return "Tracks"
+	default:
+		// Capitalize first letter and pluralize
+		if len(entityType) > 0 {
+			return strings.ToUpper(entityType[:1]) + entityType[1:] + "s"
+		}
+		return entityType
+	}
+}
+
+func (s *Server) getEntityDescription(entityType string) string {
+	switch entityType {
+	case "movie":
+		return "Feature films and movies"
+	case "series":
+		return "Television series and shows"
+	case "season":
+		return "Seasons within a TV series"
+	case "episode":
+		return "Individual episodes of TV shows"
+	case "book":
+		return "Books and literary works"
+	case "chapter":
+		return "Chapters within books"
+	case "album":
+		return "Music albums"
+	case "track":
+		return "Individual music tracks"
+	default:
+		return "Media content"
+	}
+}
+
+func (s *Server) getEntityIcon(entityType string) string {
+	switch entityType {
+	case "movie":
+		return "movie"
+	case "series":
+		return "tv"
+	case "season":
+		return "folder_open"
+	case "episode":
+		return "tv_episode"
+	case "book":
+		return "book"
+	case "chapter":
+		return "description"
+	case "album":
+		return "album"
+	case "track":
+		return "music_note"
+	default:
+		return "folder"
+	}
+}
+
+func (s *Server) getParentTypes(entityType string) []string {
+	for _, entity := range s.SchemaConfig.Entities {
+		for _, child := range entity.Children {
+			if child == entityType {
+				return append([]string{entity.Type}, s.getParentTypes(entity.Type)...)
+			}
+		}
+	}
+	return []string{s.SchemaConfig.RootEntity}
+}
+
+func (s *Server) getSupportedTypesForProvider(provider string) []string {
+	// Map providers to their supported entity types
+	switch provider {
+	case "tmdb":
+		return []string{"movie", "series", "season", "episode"}
+	case "tvdb":
+		return []string{"series", "season", "episode"}
+	case "google_books":
+		return []string{"book", "chapter"}
+	case "music":
+		return []string{"album", "track"}
+	default:
+		// Assume all types are supported for generic providers
+		var types []string
+		for _, entity := range s.SchemaConfig.Entities {
+			types = append(types, entity.Type)
+		}
+		return types
+	}
+}
+
+// getEntityTypeInfo returns detailed information about a specific entity type
+func (s *Server) getEntityTypeInfo(entityType string) map[string]interface{} {
+	for _, entity := range s.SchemaConfig.Entities {
+		if entity.Type == entityType {
+			return map[string]interface{}{
+				"name":                    entity.Type,
+				"display_name":            s.formatEntityName(entity.Type),
+				"description":             s.getEntityDescription(entity.Type),
+				"icon":                    s.getEntityIcon(entity.Type),
+				"is_leaf":                 entity.IsLeaf,
+				"has_files":               entity.HasFiles,
+				"children":                entity.Children,
+				"variants":                entity.Variants,
+				"default_quality_profile": entity.DefaultQualityProfile,
+			}
+		}
+	}
+
+	// Return generic info for unknown types
+	return map[string]interface{}{
+		"name":                    entityType,
+		"display_name":            s.formatEntityName(entityType),
+		"description":             "Unknown entity type",
+		"icon":                    "help_outline",
+		"is_leaf":                 true,
+		"has_files":               false,
+		"children":                []string{},
+		"variants":                []string{},
+		"default_quality_profile": "",
+	}
+}
+
+// GetConfig returns the system configuration with enhanced information for yaffw discovery
 func (s *Server) GetConfig(c *gin.Context) {
+	systemInfo := config.SystemInfo{
+		Version:    "1.0.0", // TODO: Get from build info
+		RootEntity: s.SchemaConfig.RootEntity,
+		MediaTypes: s.buildMediaTypesInfo(),
+		Architecture: config.ArchitectureInfo{
+			Version: "1.0.0",
+			Database: config.DatabaseInfo{
+				Type:        "sqlite",
+				Version:     "3.x",
+				MaxEntities: 100000, // Placeholder
+			},
+			Storage: config.StorageInfo{
+				Type:      "local",
+				Path:      s.ImageStoragePath,
+				Available: true,
+			},
+			Features: s.getSystemFeatures(),
+		},
+		Providers: s.buildProviderInfo(),
+		Capabilities: config.CapabilitiesInfo{
+			Streaming:        true,
+			Transcoding:      true,
+			MetadataFetching: s.CatalogConfig != nil,
+			Search:           true,
+			Download:         s.SearchManager != nil,
+			Import:           s.ImportManager != nil,
+		},
+	}
+
+	c.JSON(http.StatusOK, systemInfo)
+}
+
+// GetMediaTypes returns detailed information about available media types
+func (s *Server) GetMediaTypes(c *gin.Context) {
+	mediaTypes := s.buildMediaTypesInfo()
 	c.JSON(http.StatusOK, gin.H{
-		"root_entity":      s.SchemaConfig.RootEntity,
-		"quality_profiles": s.QualityConfig.Profiles,
+		"media_types": mediaTypes,
+		"count":       len(mediaTypes),
+	})
+}
+
+// GetArchitecture returns system architecture information
+func (s *Server) GetArchitecture(c *gin.Context) {
+	architecture := config.ArchitectureInfo{
+		Version: "1.0.0",
+		Database: config.DatabaseInfo{
+			Type:        "sqlite",
+			Version:     "3.x",
+			MaxEntities: 100000,
+		},
+		Storage: config.StorageInfo{
+			Type:      "local",
+			Path:      s.ImageStoragePath,
+			Available: s.ImageStoragePath != "",
+		},
+		Features: s.getSystemFeatures(),
+	}
+
+	c.JSON(http.StatusOK, architecture)
+}
+
+// GetProviders returns information about configured metadata providers
+func (s *Server) GetProviders(c *gin.Context) {
+	providers := s.buildProviderInfo()
+	c.JSON(http.StatusOK, gin.H{
+		"providers": providers,
+		"count":     len(providers),
 	})
 }
 
@@ -104,7 +374,101 @@ func (s *Server) GetEntity(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, entity)
+	// Add hierarchy context to the entity response
+	response := map[string]interface{}{
+		"entity":    entity,
+		"hierarchy": map[string]interface{}{},
+	}
+
+	// Build hierarchy information if entity has parent
+	if entity.ParentUUID != nil {
+		hierarchy, err := s.buildHierarchyPath(c.Request.Context(), entity.UUID.String())
+		if err == nil && len(hierarchy) > 1 {
+			response["hierarchy"] = map[string]interface{}{
+				"path":        hierarchy,
+				"parent":      hierarchy[len(hierarchy)-2], // Parent (excluding entity itself)
+				"grandparent": nil,
+			}
+			if len(hierarchy) > 2 {
+				response["hierarchy"].(map[string]interface{})["grandparent"] = hierarchy[len(hierarchy)-3]
+			}
+		}
+	}
+
+	// Add entity type context
+	entityTypeInfo := s.getEntityTypeInfo(entity.EntityType)
+	response["entity_type_info"] = entityTypeInfo
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetEntityHierarchy returns the hierarchical path from root to this entity
+func (s *Server) GetEntityHierarchy(c *gin.Context) {
+	id := c.Param("uuid")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid parameter is required"})
+		return
+	}
+
+	// Build hierarchy path from entity to root
+	hierarchy, err := s.buildHierarchyPath(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"entity_id": id,
+		"hierarchy": hierarchy,
+		"path":      s.hierarchyToPath(hierarchy),
+	})
+}
+
+// GetEntityChildren returns direct children of this entity
+func (s *Server) GetEntityChildren(c *gin.Context) {
+	id := c.Param("uuid")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid parameter is required"})
+		return
+	}
+
+	// Get children using existing repository method
+	criteria := map[string]interface{}{
+		"parent_uuid": id,
+	}
+
+	children, err := s.Repo.Find(c.Request.Context(), criteria)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"parent_id": id,
+		"children":  children,
+		"count":     len(children),
+	})
+}
+
+// GetEntityDescendants returns all descendants recursively
+func (s *Server) GetEntityDescendants(c *gin.Context) {
+	id := c.Param("uuid")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid parameter is required"})
+		return
+	}
+
+	// Build complete descendant tree
+	descendants, err := s.buildDescendantsTree(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"entity_id":   id,
+		"descendants": descendants,
+	})
 }
 
 // LookupCatalog searches for new content to add
@@ -365,4 +729,88 @@ func (s *Server) ForceImport(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "import triggered"})
+}
+
+// buildHierarchyPath builds a hierarchical path from entity to root
+func (s *Server) buildHierarchyPath(ctx context.Context, entityID string) ([]map[string]interface{}, error) {
+	path := []map[string]interface{}{}
+	currentID := entityID
+
+	for {
+		entity, err := s.Repo.Get(ctx, currentID)
+		if err != nil {
+			return nil, err
+		}
+
+		path = append([]map[string]interface{}{
+			{
+				"id":          entity.UUID.String(),
+				"type":        entity.EntityType,
+				"title":       entity.GetTitle(),
+				"parent_uuid": entity.ParentUUID,
+			},
+		}, path...)
+
+		if entity.ParentUUID == nil {
+			break
+		}
+		currentID = entity.ParentUUID.String()
+	}
+
+	return path, nil
+}
+
+// buildDescendantsTree builds a complete tree of all descendants
+func (s *Server) buildDescendantsTree(ctx context.Context, entityID string) (map[string]interface{}, error) {
+	entity, err := s.Repo.Get(ctx, entityID)
+	if err != nil {
+		return nil, err
+	}
+
+	tree := map[string]interface{}{
+		"id":       entity.UUID.String(),
+		"type":     entity.EntityType,
+		"title":    entity.GetTitle(),
+		"children": []map[string]interface{}{},
+	}
+
+	// Recursively fetch children
+	childrenCriteria := map[string]interface{}{
+		"parent_uuid": entityID,
+	}
+
+	children, err := s.Repo.Find(ctx, childrenCriteria)
+	if err != nil {
+		return tree, nil // Return entity with empty children on error
+	}
+
+	childrenTrees := []map[string]interface{}{}
+	for _, child := range children {
+		childTree, err := s.buildDescendantsTree(ctx, child.UUID.String())
+		if err != nil {
+			continue // Skip children that fail
+		}
+		childrenTrees = append(childrenTrees, childTree)
+	}
+
+	tree["children"] = childrenTrees
+	tree["child_count"] = len(childrenTrees)
+
+	return tree, nil
+}
+
+// hierarchyToPath converts a hierarchy path to a human-readable path string
+func (s *Server) hierarchyToPath(hierarchy []map[string]interface{}) string {
+	var parts []string
+	for _, level := range hierarchy {
+		title, ok := level["title"].(string)
+		if !ok || title == "" {
+			// Fallback to type if title is not available
+			title, _ = level["type"].(string)
+		}
+		if title != "" {
+			parts = append(parts, title)
+		}
+	}
+	return strings.Join(parts, " / ")
 }

@@ -34,6 +34,37 @@ type Entity struct {
 	DownloadClientID   *string         `db:"download_client_id" json:"download_client_id"`
 }
 
+// GetTitle extracts the title from entity metadata, falling back to entity type
+func (e *Entity) GetTitle() string {
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(e.Metadata, &metadata); err == nil {
+		if title, ok := metadata["title"].(string); ok && title != "" {
+			return title
+		}
+	}
+
+	// Fallback: return entity type formatted
+	if e.EntityType != "" {
+		switch e.EntityType {
+		case "movie":
+			return "Movie"
+		case "series":
+			return "TV Series"
+		case "season":
+			return "Season"
+		case "episode":
+			return "Episode"
+		default:
+			// Capitalize first letter
+			if len(e.EntityType) > 0 {
+				return string(e.EntityType[0]-32) + e.EntityType[1:]
+			}
+		}
+	}
+
+	return "Unknown Entity"
+}
+
 // Identifier represents a lookup key for an entity (e.g., imdb_id: tt12345)
 type Identifier struct {
 	EntityUUID uuid.UUID `db:"entity_uuid"`
