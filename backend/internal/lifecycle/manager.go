@@ -83,10 +83,24 @@ func (m *Manager) RefreshEntity(ctx context.Context, entityUUID string, childOve
 		return fmt.Errorf("entity metadata missing external ID")
 	}
 
-	// 3. Fetch metadata from provider
-	newMeta, err := m.provider.GetMetadata(ctx, entity.EntityType, meta.ID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch metadata: %w", err)
+	// 3. Fetch metadata from provider (with entity UUID for image naming)
+	// Check if provider supports GetMetadataWithEntityID (metadata.Manager)
+	var newMeta *metadata.Metadata
+
+	if mgr, ok := m.provider.(*metadata.Manager); ok {
+		// Use the enhanced method that passes entity UUID for deterministic image naming
+		var metaErr error
+		newMeta, metaErr = mgr.GetMetadataWithEntityID(ctx, entity.EntityType, meta.ID, entity.UUID.String())
+		if metaErr != nil {
+			return fmt.Errorf("failed to fetch metadata: %w", metaErr)
+		}
+	} else {
+		// Fallback for other providers
+		var metaErr error
+		newMeta, metaErr = m.provider.GetMetadata(ctx, entity.EntityType, meta.ID)
+		if metaErr != nil {
+			return fmt.Errorf("failed to fetch metadata: %w", metaErr)
+		}
 	}
 
 	// 4. Update entity with new metadata
@@ -150,7 +164,7 @@ func (m *Manager) refreshHierarchy(ctx context.Context, parent *domain.Entity, p
 
 		// Create/Update Child Entity
 		childUUID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(childExternalID))
-		
+
 		existingChild, err := m.repo.Get(ctx, childUUID.String())
 		var childEntity *domain.Entity
 		if err == nil {
@@ -251,7 +265,7 @@ func (m *Manager) refreshVariants(ctx context.Context, parent *domain.Entity, pa
 		// Ideally, the metadata ID should also be unique if we ever look it up by ID.
 		variantMeta.ID = parentMeta.ID + "-" + variantType
 		variantMeta.Title = fmt.Sprintf("%s (%s)", parentMeta.Title, variantType)
-		
+
 		// Clear children for variant to avoid recursion issues if we ever process it
 		variantMeta.Children = nil
 

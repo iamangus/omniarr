@@ -32,6 +32,11 @@ func NewManager(provider MetadataProvider, imageStoragePath string) *Manager {
 
 // GetMetadata fetches metadata for a specific entity type and ID
 func (m *Manager) GetMetadata(ctx context.Context, entityType string, id string) (*Metadata, error) {
+	return m.GetMetadataWithEntityID(ctx, entityType, id, "")
+}
+
+// GetMetadataWithEntityID fetches metadata for a specific entity type and ID, with optional entity UUID for image naming
+func (m *Manager) GetMetadataWithEntityID(ctx context.Context, entityType string, id string, entityUUID string) (*Metadata, error) {
 	if m.provider == nil {
 		return nil, fmt.Errorf("no metadata provider configured")
 	}
@@ -44,7 +49,7 @@ func (m *Manager) GetMetadata(ctx context.Context, entityType string, id string)
 	// Handle Image Download
 	if meta.Image != "" && m.imageStoragePath != "" {
 		log.Printf("Found image URL for %s %s: %s", entityType, id, meta.Image)
-		localPath, err := m.downloadImage(ctx, meta.Image, entityType, id)
+		localPath, err := m.downloadImage(ctx, meta.Image, entityUUID)
 		if err != nil {
 			log.Printf("Failed to download image for %s %s: %v", entityType, id, err)
 		} else {
@@ -76,16 +81,14 @@ func (m *Manager) GetLists(ctx context.Context, listIDs []string) ([]Metadata, e
 	return m.provider.GetLists(ctx, listIDs)
 }
 
-func (m *Manager) downloadImage(ctx context.Context, imageURL string, entityType string, id string) (string, error) {
+func (m *Manager) downloadImage(ctx context.Context, imageURL string, entityUUID string) (string, error) {
 	log.Printf("Downloading image from %s", imageURL)
 	// Create directory if not exists
 	if err := os.MkdirAll(m.imageStoragePath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create image directory: %w", err)
 	}
 
-	// Determine filename
-	// Sanitize ID just in case
-	safeID := strings.ReplaceAll(id, "/", "_")
+	// Determine filename based on entity UUID
 	ext := filepath.Ext(imageURL)
 	// Handle query params in extension (e.g. image.jpg?v=1)
 	if idx := strings.Index(ext, "?"); idx != -1 {
@@ -94,7 +97,17 @@ func (m *Manager) downloadImage(ctx context.Context, imageURL string, entityType
 	if ext == "" {
 		ext = ".jpg" // Default to jpg
 	}
-	filename := fmt.Sprintf("%s_%s%s", entityType, safeID, ext)
+
+	// Use UUID-based naming for deterministic URLs
+	// Format: {uuid}_poster.jpg
+	var filename string
+	if entityUUID != "" {
+		filename = fmt.Sprintf("%s_poster%s", entityUUID, ext)
+	} else {
+		// Fallback for legacy calls without UUID
+		filename = fmt.Sprintf("unknown_%d%s", time.Now().Unix(), ext)
+	}
+
 	localPath := filepath.Join(m.imageStoragePath, filename)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", imageURL, nil)
