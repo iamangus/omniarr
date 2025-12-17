@@ -46,19 +46,33 @@ func (m *Manager) GetMetadataWithEntityID(ctx context.Context, entityType string
 		return nil, err
 	}
 
-	// Handle Image Download
+	// Handle Poster Image Download
 	if meta.Image != "" && m.imageStoragePath != "" {
-		log.Printf("Found image URL for %s %s: %s", entityType, id, meta.Image)
-		localPath, err := m.downloadImage(ctx, meta.Image, entityUUID)
+		log.Printf("Found poster URL for %s %s: %s", entityType, id, meta.Image)
+		localPath, err := m.downloadImage(ctx, meta.Image, entityUUID, "poster")
 		if err != nil {
-			log.Printf("Failed to download image for %s %s: %v", entityType, id, err)
+			log.Printf("Failed to download poster for %s %s: %v", entityType, id, err)
 		} else {
-			log.Printf("Successfully downloaded image to %s", localPath)
+			log.Printf("Successfully downloaded poster to %s", localPath)
 			// We store the local path in the Extra map so it can be used by the lifecycle manager
 			if meta.Extra == nil {
 				meta.Extra = make(map[string]interface{})
 			}
 			meta.Extra["_local_image_path"] = localPath
+		}
+	}
+
+	// Handle Backdrop Image Download
+	if meta.Extra != nil {
+		if backdropURL, ok := meta.Extra["backdrop"].(string); ok && backdropURL != "" && m.imageStoragePath != "" {
+			log.Printf("Found backdrop URL for %s %s: %s", entityType, id, backdropURL)
+			localPath, err := m.downloadImage(ctx, backdropURL, entityUUID, "backdrop")
+			if err != nil {
+				log.Printf("Failed to download backdrop for %s %s: %v", entityType, id, err)
+			} else {
+				log.Printf("Successfully downloaded backdrop to %s", localPath)
+				meta.Extra["_local_backdrop_path"] = localPath
+			}
 		}
 	}
 
@@ -81,14 +95,14 @@ func (m *Manager) GetLists(ctx context.Context, listIDs []string) ([]Metadata, e
 	return m.provider.GetLists(ctx, listIDs)
 }
 
-func (m *Manager) downloadImage(ctx context.Context, imageURL string, entityUUID string) (string, error) {
-	log.Printf("Downloading image from %s", imageURL)
+func (m *Manager) downloadImage(ctx context.Context, imageURL string, entityUUID string, imageType string) (string, error) {
+	log.Printf("Downloading %s image from %s", imageType, imageURL)
 	// Create directory if not exists
 	if err := os.MkdirAll(m.imageStoragePath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create image directory: %w", err)
 	}
 
-	// Determine filename based on entity UUID
+	// Determine filename based on entity UUID and image type
 	ext := filepath.Ext(imageURL)
 	// Handle query params in extension (e.g. image.jpg?v=1)
 	if idx := strings.Index(ext, "?"); idx != -1 {
@@ -99,13 +113,13 @@ func (m *Manager) downloadImage(ctx context.Context, imageURL string, entityUUID
 	}
 
 	// Use UUID-based naming for deterministic URLs
-	// Format: {uuid}_poster.jpg
+	// Format: {uuid}_poster.jpg or {uuid}_backdrop.jpg
 	var filename string
 	if entityUUID != "" {
-		filename = fmt.Sprintf("%s_poster%s", entityUUID, ext)
+		filename = fmt.Sprintf("%s_%s%s", entityUUID, imageType, ext)
 	} else {
 		// Fallback for legacy calls without UUID
-		filename = fmt.Sprintf("unknown_%d%s", time.Now().Unix(), ext)
+		filename = fmt.Sprintf("unknown_%s_%d%s", imageType, time.Now().Unix(), ext)
 	}
 
 	localPath := filepath.Join(m.imageStoragePath, filename)
