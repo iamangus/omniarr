@@ -399,7 +399,22 @@ func (s *Server) GetEntity(c *gin.Context) {
 	entityTypeInfo := s.getEntityTypeInfo(entity.EntityType)
 	response["entity_type_info"] = entityTypeInfo
 
+	// DEBUG LOG
+	// fmt.Printf("[API] Serving Entity %s: Metadata Keys: %v\n", entity.UUID, getJSONKeys(entity.Metadata))
+
 	c.JSON(http.StatusOK, response)
+}
+
+func getJSONKeys(data []byte) []string {
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return []string{}
+	}
+	var keys []string
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // GetEntityHierarchy returns the hierarchical path from root to this entity

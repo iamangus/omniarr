@@ -56,15 +56,17 @@ type SearchResult struct {
 }
 
 type MovieDetails struct {
-	ID          int        `json:"id"`
-	Title       string     `json:"title"`
-	Overview    string     `json:"overview"`
-	PosterPath  string     `json:"poster_path"`
-	ReleaseDate string     `json:"release_date"`
-	Genres      []Genre    `json:"genres"`
-	Runtime     int        `json:"runtime"`
-	Credits     Credits    `json:"credits"`
-	ExternalIDs ExternalID `json:"external_ids"`
+	ID           int        `json:"id"`
+	Title        string     `json:"title"`
+	Overview     string     `json:"overview"`
+	PosterPath   string     `json:"poster_path"`
+	BackdropPath string     `json:"backdrop_path"`
+	ReleaseDate  string     `json:"release_date"`
+	Genres       []Genre    `json:"genres"`
+	Runtime      int        `json:"runtime"`
+	Credits      Credits    `json:"credits"`
+	ExternalIDs  ExternalID `json:"external_ids"`
+	VoteAverage  float64    `json:"vote_average"`
 }
 
 type TVDetails struct {
@@ -72,11 +74,13 @@ type TVDetails struct {
 	Name         string     `json:"name"`
 	Overview     string     `json:"overview"`
 	PosterPath   string     `json:"poster_path"`
+	BackdropPath string     `json:"backdrop_path"`
 	FirstAirDate string     `json:"first_air_date"`
 	Genres       []Genre    `json:"genres"`
 	Seasons      []Season   `json:"seasons"`
 	Credits      Credits    `json:"credits"`
 	ExternalIDs  ExternalID `json:"external_ids"`
+	VoteAverage  float64    `json:"vote_average"`
 }
 
 type Genre struct {
@@ -159,6 +163,18 @@ func (p *Provider) getMovieMetadata(ctx context.Context, id int) (*metadata.Meta
 		}
 	}
 
+	// Map Genres
+	var genres []string
+	for _, g := range details.Genres {
+		genres = append(genres, g.Name)
+	}
+
+	// Map Backdrop
+	backdropURL := ""
+	if details.BackdropPath != "" {
+		backdropURL = ImageBaseURL + details.BackdropPath
+	}
+
 	identifiers := map[string]string{
 		"tmdb": fmt.Sprintf("%d", details.ID),
 	}
@@ -171,6 +187,9 @@ func (p *Provider) getMovieMetadata(ctx context.Context, id int) (*metadata.Meta
 		imageURL = ImageBaseURL + details.PosterPath
 	}
 
+	fmt.Printf("[TMDB] Fetched metadata for movie %d: Title='%s', Authors=%v, Genres=%v, Runtime=%d\n",
+		details.ID, details.Title, authors, genres, details.Runtime)
+
 	return &metadata.Metadata{
 		ID:          fmt.Sprintf("%d", details.ID),
 		Type:        "movie",
@@ -180,6 +199,12 @@ func (p *Provider) getMovieMetadata(ctx context.Context, id int) (*metadata.Meta
 		Authors:     authors,
 		Image:       imageURL,
 		Identifiers: identifiers,
+		Extra: map[string]interface{}{
+			"runtime":  details.Runtime,
+			"genres":   genres,
+			"backdrop": backdropURL,
+			"rating":   details.VoteAverage,
+		},
 	}, nil
 }
 
@@ -223,6 +248,21 @@ func (p *Provider) getTVMetadata(ctx context.Context, id int) (*metadata.Metadat
 		imageURL = ImageBaseURL + details.PosterPath
 	}
 
+	// Map Genres
+	var genres []string
+	for _, g := range details.Genres {
+		genres = append(genres, g.Name)
+	}
+
+	// Map Backdrop
+	backdropURL := ""
+	if details.BackdropPath != "" {
+		backdropURL = ImageBaseURL + details.BackdropPath
+	}
+
+	fmt.Printf("[TMDB] Fetched metadata for TV %d: Title='%s', Authors=%v, Genres=%v\n",
+		details.ID, details.Name, authors, genres)
+
 	meta := &metadata.Metadata{
 		ID:          fmt.Sprintf("%d", details.ID),
 		Type:        "series",
@@ -232,6 +272,11 @@ func (p *Provider) getTVMetadata(ctx context.Context, id int) (*metadata.Metadat
 		Authors:     authors,
 		Image:       imageURL,
 		Identifiers: identifiers,
+		Extra: map[string]interface{}{
+			"genres":   genres,
+			"backdrop": backdropURL,
+			"rating":   details.VoteAverage,
+		},
 	}
 
 	// Map seasons
